@@ -1,0 +1,36 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "5ca8da7fae476ab67be8708fba96aeaa"
+name = "bf-test-app"
+handle = "bf-test-app"
+application_url = "https://warm-protect-directed-organised.trycloudflare.com"
+embedded = true
+
+[build]
+include_config_on_deploy = true
+automatically_update_urls_on_dev = true
+
+[webhooks]
+api_version = "2025-04"
+
+  [[webhooks.subscriptions]]
+  topics = [ "app/uninstalled" ]
+  uri = "/webhooks/app/uninstalled"
+
+  [[webhooks.subscriptions]]
+  topics = [ "app/scopes_update" ]
+  uri = "/webhooks/app/scopes_update"
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "read_customers,read_orders,write_products,read_fulfillments"
+
+[auth]
+redirect_urls = [
+  "https://warm-protect-directed-organised.trycloudflare.com/auth/callback",
+  "https://warm-protect-directed-organised.trycloudflare.com/auth/shopify/callback",
+  "https://warm-protect-directed-organised.trycloudflare.com/api/auth/callback"
+]
+
+[pos]
+embedded = false
