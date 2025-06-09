@@ -3,12 +3,12 @@
 client_id = "5ca8da7fae476ab67be8708fba96aeaa"
 name = "bf-test-app"
 handle = "bf-test-app"
-application_url = "https://warm-protect-directed-organised.trycloudflare.com"
+application_url = "https://bf-test-app.vercel.app/"
 embedded = true
 
 [build]
 include_config_on_deploy = true
-automatically_update_urls_on_dev = true
+automatically_update_urls_on_dev = false
 
 [webhooks]
 api_version = "2025-04"
@@ -27,10 +27,21 @@ scopes = "read_customers,read_orders,write_products,read_fulfillments"
 
 [auth]
 redirect_urls = [
-  "https://warm-protect-directed-organised.trycloudflare.com/auth/callback",
-  "https://warm-protect-directed-organised.trycloudflare.com/auth/shopify/callback",
-  "https://warm-protect-directed-organised.trycloudflare.com/api/auth/callback"
+  "https://bf-test-app.vercel.app/auth/callback",
+  "https://bf-test-app.vercel.app/auth/shopify/callback",
+  "https://bf-test-app.vercel.app/api/auth/callback"
 ]
 
 [pos]
 embedded = false
+
+[[web]]
+role = "backend"
+command = 'cmd /c "cd ..\shopify-flow-billing-server && npm run start:dev"'
+port = 3_000
+paths = [
+  "/webhooks/*",
+  "/api/auth/*",
+  "/flow-action/handle",
+  "/graphql"
+]
