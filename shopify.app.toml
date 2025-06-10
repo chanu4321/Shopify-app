@@ -3,7 +3,7 @@
 client_id = "5ca8da7fae476ab67be8708fba96aeaa"
 name = "bf-test-app"
 handle = "bf-test-app"
-application_url = "https://bf-test-app.vercel.app/"
+application_url = "https://shopify-app-ten-pi.vercel.app"
 embedded = true
 
 [build]
@@ -27,9 +27,9 @@ scopes = "read_customers,read_orders,write_products,read_fulfillments"
 
 [auth]
 redirect_urls = [
-  "https://bf-test-app.vercel.app/auth/callback",
-  "https://bf-test-app.vercel.app/auth/shopify/callback",
-  "https://bf-test-app.vercel.app/api/auth/callback"
+  "https://shopify-app-ten-pi.vercel.app/auth/callback",
+  "https://shopify-app-ten-pi.vercel.app/auth/shopify/callback",
+  "https://shopify-app-ten-pi.vercel.app/api/auth/callback"
 ]
 
 [pos]

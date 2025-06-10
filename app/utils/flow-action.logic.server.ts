@@ -92,8 +92,7 @@ const GET_ORDER_DETAILS_QUERY = gql`
         firstName
         lastName
         acceptsMarketing
-        # *** CHANGED: Query metafields as a connection for robust access ***
-        metafields(first: 10, namespace: "custom") { # Fetch up to 10 custom metafields
+        metafields(first: 10, namespace: "custom") {
           nodes {
             key
             namespace

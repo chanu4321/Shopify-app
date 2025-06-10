@@ -4,16 +4,14 @@ handle = "send-invoice"
 type = "flow_action"
 
 description = "Your description"
-runtime_url = "https://bf-test-app.vercel.app/flow_action.handle"
+runtime_url = "https://shopify-app-ten-pi.vercel.app/flow-action.handle"
 
 [settings]
 
-# For the ENTIRE Order object (recommended for full details)
   [[settings.fields]]
   type = "order_reference"
   required = true
-
-  # For the ENTIRE Customer object (if you need more than just the ID from customer_reference)
+  
   [[settings.fields]]
   type = "customer_reference"
   required = true
