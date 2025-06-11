@@ -4,8 +4,7 @@ import {
   AppDistribution,
   shopifyApp,
 } from "@shopify/shopify-app-remix/server";
-import { MemorySessionStorage } from "@shopify/shopify-app-session-storage-memory";
-import { PrismaSessionStorage,  } from "@shopify/shopify-app-session-storage-prisma";
+import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
 import prisma from "./db.server";
 import { adminClientFactory } from "node_modules/@shopify/shopify-app-remix/dist/ts/server/clients";
 
@@ -16,20 +15,9 @@ const shopify = shopifyApp({
   scopes: process.env.SCOPES?.split(","),
   appUrl: process.env.SHOPIFY_APP_URL || "",
   authPathPrefix: "/auth",
-  sessionStorage: new MemorySessionStorage(),
+  sessionStorage: new PrismaSessionStorage(prisma),
   EnableGraphiQL: true,
   distribution: AppDistribution.AppStore,
-  future: {
-    unstable_newEmbeddedAuthStrategy: true,
-    removeRest: true,
-  },
-  ...(process.env.SHOP_CUSTOM_DOMAIN
-    ? { customShopDomains: [process.env.SHOP_CUSTOM_DOMAIN] }
-    : {}),
-  adminApi: { },
-  routes: {
-     GraphiQL: "/app/qgl", // This tells the framework to serve GraphiQL at /app/qgl
-   },
 });
 
 
