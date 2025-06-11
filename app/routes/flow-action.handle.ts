@@ -76,15 +76,15 @@ export async function action({ request }: ActionFunctionArgs) {
       query GetOrderAndCustomerDetails($orderId: ID!, $customerId: ID!) {
         order(id: $orderId) {
           id
-          name # For inv_no
-          createdAt # For bill_date, bill_time
-          totalPriceSet { # For bill_amount (total price including taxes and discounts)
+          name
+          createdAt
+          totalPriceSet {
             shopMoney { amount currencyCode }
           }
-          totalDiscountsSet { # For discount_amount (total order discount before returns)
+          totalDiscountsSet {
             shopMoney { amount currencyCode }
           }
-          totalCashRoundingAdjustment { # For round_off
+          totalCashRoundingAdjustment {
             paymentSet {
               shopMoney { amount currencyCode }
             }
@@ -125,13 +125,13 @@ export async function action({ request }: ActionFunctionArgs) {
                 }
                 product {
                   id
-                  metafield(namespace: "custom", key: "hsn_code") {
+                  hsncode: metafield(namespace: "custom", key: "hsn_code") {
                     value
                   }
                 }
                 variant {
                   id
-                  metafield(namespace: "custom", key: "barcode") {
+                  barcode: metafield(namespace: "custom", key: "barcode") {
                     value
                   }
                 }
