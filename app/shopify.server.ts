@@ -4,7 +4,8 @@ import {
   AppDistribution,
   shopifyApp,
 } from "@shopify/shopify-app-remix/server";
-import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
+import { MemorySessionStorage } from "@shopify/shopify-app-session-storage-memory";
+import { PrismaSessionStorage,  } from "@shopify/shopify-app-session-storage-prisma";
 import prisma from "./db.server";
 import { adminClientFactory } from "node_modules/@shopify/shopify-app-remix/dist/ts/server/clients";
 
@@ -15,7 +16,7 @@ const shopify = shopifyApp({
   scopes: process.env.SCOPES?.split(","),
   appUrl: process.env.SHOPIFY_APP_URL || "",
   authPathPrefix: "/auth",
-  sessionStorage: new PrismaSessionStorage(prisma),
+  sessionStorage: new MemorySessionStorage(),
   EnableGraphiQL: true,
   distribution: AppDistribution.AppStore,
   future: {

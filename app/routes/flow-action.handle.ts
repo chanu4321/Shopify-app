@@ -72,7 +72,7 @@ export async function action({ request }: ActionFunctionArgs) {
       return json({ message: "Internal Server Error: Admin API authentication failed" }, { status: 500 });
     }
     // Your GraphQL query (already updated in your message, copy it here)
-    const ORDER_AND_CUSTOMER_QUERY = `#graphql
+    const ORDER_AND_CUSTOMER_QUERY = `
       query GetOrderAndCustomerDetails($orderId: ID!, $customerId: ID!) {
         order(id: $orderId) {
           id
@@ -166,18 +166,18 @@ export async function action({ request }: ActionFunctionArgs) {
     `;
 
     // Extract raw IDs from GIDs
-    const orderId = orderGid.split('/').pop();
-    const customerId = customerGid.split('/').pop();
+    // const orderId = orderGid.split('/').pop();
+    // const customerId = customerGid.split('/').pop();
 
-    if (!orderId || !customerId) {
+    if (!orderGid || !customerGid) {
         console.error("Failed to extract ID from Order GID or Customer GID.");
         throw new Response("Bad Request: Invalid Order or Customer GID format", { status: 400 });
     }
 
     const response = await admin.graphql(ORDER_AND_CUSTOMER_QUERY, {
       variables: {
-        orderId: orderId, // Pass the extracted ID
-        customerId: customerId, // Pass the extracted ID
+        orderId: orderGid, // Pass the extracted ID
+        customerId: customerGid, // Pass the extracted ID
       },
     });
 
