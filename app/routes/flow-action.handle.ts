@@ -255,7 +255,6 @@ export const action: ActionFunction = async ({ request }) => {
   const totalGSTTotalSummary = gstSummary.reduce((sum, entry) => sum + parseFloat(entry.total), 0).toFixed(2);
 
   gstSummary.push({
-    isTotal: "true",
     gst: "",
     taxable: totalTaxableSummary,
     cgst: totalCGSTSummary,
@@ -332,21 +331,48 @@ export const action: ActionFunction = async ({ request }) => {
 
   console.log("Generated BillFree Payload:", JSON.stringify(billFreePayload, null, 2));
 
-  // --- Make the actual API call to BillFree here ---
-  // const billFreeApiResponse = await fetch("YOUR_BILLFREE_API_ENDPOINT", {
-  //   method: "POST",
-  //   headers: {
-  //     "Content-Type": "application/json",
-  //     "Authorization": `Bearer ${billFreePayload.auth_token}` // If BillFree uses Bearer token
-  //   },
-  //   body: JSON.stringify(billFreePayload),
-  // });
-  // const billFreeResponseData = await billFreeApiResponse.json();
-  // if (!billFreeApiResponse.ok) {
-  //   console.error("BillFree API Error:", billFreeResponseData);
-  //   throw new Response(`BillFree API Error: ${JSON.stringify(billFreeResponseData)}`, { status: billFreeApiResponse.status });
-  // }
-  // console.log("BillFree API Success:", billFreeResponseData);
+  //-- Make the actual API call to BillFree here
+ try {
+    // Make the actual API call to BillFree
+    const billFreeApiResponse = await fetch(process.env.BILLING_API_URL!, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        // Ensure this Authorization header format is correct for BillFree
+        // Some APIs use "Token" instead of "Bearer", or a custom header.
+        // Check BillFree's API documentation.
+        "Authorization": `Bearer ${process.env.BILLING_API_AUTH_TOKEN}`
+      },
+      body: JSON.stringify(billFreePayload),
+    });
+
+    const billFreeResponseData = await billFreeApiResponse.json();
+
+    if (!billFreeApiResponse.ok) {
+      // Log the full error response from BillFree for detailed debugging
+      console.error("BillFree API Error:", billFreeApiResponse.status, billFreeResponseData);
+
+      // Throw a specific error to Shopify Flow for clearer debugging in the Flow UI
+      throw new Response(
+        `BillFree API Integration Failed (Status: ${billFreeApiResponse.status}): ${JSON.stringify(billFreeResponseData)}`,
+        { status: billFreeApiResponse.status }
+      );
+    }
+
+    console.log("BillFree API Success:", billFreeResponseData);
+
+    // You can return the success response from BillFree back to Shopify Flow if needed
+    return json({
+      message: "Flow Action executed successfully and BillFree payload sent.",
+      billFreeResponse: billFreeResponseData, // Include BillFree's response for traceability
+      payloadSent: billFreePayload // For debugging, remove or limit in production
+    });
+
+  } catch (error) {
+    // Catch any network errors or errors thrown before the fetch call
+    console.error("Error during BillFree API call:", error);
+    throw new Response(`Internal Server Error during BillFree API call: ${error.message || error}`, { status: 500 });
+  }
 
 
   return json({
