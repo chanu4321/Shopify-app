@@ -64,7 +64,6 @@ export async function action({ request }: ActionFunctionArgs) {
   console.log(`Processing Flow Action for Customer GID: ${customerGid}`);
   console.log(`Custom Setting: ${customSetting}`);
 
-  try {
     // 3. Authenticate with Shopify Admin API to fetch additional data
     const { admin } = await authenticate.admin(request);
     if (!admin) {
@@ -390,13 +389,15 @@ export async function action({ request }: ActionFunctionArgs) {
       payloadSent: billFreePayload
     });
 
-  } catch (error) {
-    console.error("Error during Flow Action execution:", error);
-    // Ensure this throws a proper HTTP response that Shopify Flow can understand.
-    // If it's a generic Error, return 500. If it's a Response object, re-throw it.
-    if (error instanceof Response) {
-      throw error; // Re-throw the Response object
-    }
-    throw new Response(`Internal Server Error during BillFree API call: ${error instanceof Error ? error.message : String(error)}`, { status: 500 });
-  }
+   
+  
+  // catch (error) {
+  //   console.error("Error during Flow Action execution:", error);
+  //   // Ensure this throws a proper HTTP response that Shopify Flow can understand.
+  //   // If it's a generic Error, return 500. If it's a Response object, re-throw it.
+  //   if (error instanceof Response) {
+  //     throw error; // Re-throw the Response object
+  //   }
+  //   throw new Response(`Internal Server Error during BillFree API call: ${error instanceof Error ? error.message : String(error)}`, { status: 500 });
+  // }
 } // End of action function
