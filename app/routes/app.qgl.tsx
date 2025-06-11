@@ -12,7 +12,8 @@ export async function loader({ request }: LoaderFunctionArgs) {
   // Returning null here is the expected behavior if authenticate.admin handles the response
   // directly for the GraphiQL UI. If it doesn't, Remix will try to render a component.
   return json({
-    admin: admin, // Return the whole admin object for inspection
+    admin: admin,
+    graphiqlEnabled: true, // Return the whole admin object for inspection
     // You can remove the default export below if this works
   }); 
 }

@@ -27,7 +27,7 @@ const shopify = shopifyApp({
     : {}),
   adminApi: { },
   routes: {
-     GraphiQL: "/app/qgl", // This tells the framework to serve GraphiQL at /qgl
+     GraphiQL: "/app/qgl", // This tells the framework to serve GraphiQL at /app/qgl
    },
 });
 
