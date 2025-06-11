@@ -330,7 +330,12 @@ export const action: ActionFunction = async ({ request }) => {
   };
 
   console.log("Generated BillFree Payload:", JSON.stringify(billFreePayload, null, 2));
-
+  
+ console.log("DEBUG: About to make BillFree API call.");
+ console.log("DEBUG: BILLING_API_URL:", process.env.BILLING_API_URL);
+ console.log("DEBUG: BILLING_API_AUTH_TOKEN (first 5 chars):", process.env.BILLING_API_AUTH_TOKEN?.substring(0, 5) + '...'); // Log partial for security
+ console.log("DEBUG: BillFree Payload (partial):", JSON.stringify(billFreePayload, null, 2).substring(0, 500) + '...'); // Log partial payload
+ 
   //-- Make the actual API call to BillFree here
  try {
     // Make the actual API call to BillFree
@@ -341,7 +346,6 @@ export const action: ActionFunction = async ({ request }) => {
         // Ensure this Authorization header format is correct for BillFree
         // Some APIs use "Token" instead of "Bearer", or a custom header.
         // Check BillFree's API documentation.
-        "Authorization": `Bearer ${process.env.BILLING_API_AUTH_TOKEN}`
       },
       body: JSON.stringify(billFreePayload),
     });
