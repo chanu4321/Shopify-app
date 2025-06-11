@@ -16,6 +16,7 @@ const shopify = shopifyApp({
   appUrl: process.env.SHOPIFY_APP_URL || "",
   authPathPrefix: "/auth",
   sessionStorage: new PrismaSessionStorage(prisma),
+  EnableGraphiQL: true,
   distribution: AppDistribution.AppStore,
   future: {
     unstable_newEmbeddedAuthStrategy: true,
@@ -24,7 +25,12 @@ const shopify = shopifyApp({
   ...(process.env.SHOP_CUSTOM_DOMAIN
     ? { customShopDomains: [process.env.SHOP_CUSTOM_DOMAIN] }
     : {}),
+  adminApi: { },
+  routes: {
+     GraphiQL: "/qgl", // This tells the framework to serve GraphiQL at /qgl
+   },
 });
+
 
 export default shopify;
 export const apiVersion = ApiVersion.January25;
@@ -34,4 +40,3 @@ export const unauthenticated = shopify.unauthenticated;
 export const login = shopify.login;
 export const registerWebhooks = shopify.registerWebhooks;
 export const sessionStorage = shopify.sessionStorage;
-
