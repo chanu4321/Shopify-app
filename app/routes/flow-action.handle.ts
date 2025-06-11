@@ -8,7 +8,7 @@ console.log("--- FLOW ACTION HANDLER MODULE LOADED ---");
 import { ActionFunctionArgs, json } from "@remix-run/node";
 // Assuming these utility files exist and are correct
 import { FlowActionPayloadSchema, FlowActionPayload } from "../utils/flow-action.schemas.server";
-import { verifyFlowActionHmac } from "../utils/hmac.server";
+import { verifyRequestAndGetBody } from "../utils/hmac.server";
 import { ZodError } from "zod";
 import { authenticate } from "../shopify.server";
 
@@ -20,37 +20,44 @@ import { authenticate } from "../shopify.server";
 // CORRECTED: Consolidated and fixed action function definition
 export async function action({ request }: ActionFunctionArgs) {
   console.log("-----------------------------------------------");
-  console.log("--- FLOW ACTION HANDLER FUNCTION STARTED ---"); // Consolidated this log
+  console.log("--- FLOW ACTION HANDLER FUNCTION STARTED ---");
+  console.log("DEBUG_ENV_VAR_VALUE:", process.env.DEBUG); // Keep this for now for debug confirmation
   console.log("Incoming Flow Action request received.");
 
-  // Access environment variables inside the function scope
   const BILLING_API_AUTH_TOKEN = process.env.BILLING_API_AUTH_TOKEN;
-  const BILLING_API_BASE_URL = process.env.BILLING_API_BASE_URL; // Using BASE_URL consistently
+  const BILLING_API_BASE_URL = process.env.BILLING_API_BASE_URL;
 
-  // 1. Verify HMAC Signature
-  const isHmacValid = await verifyFlowActionHmac(request);
-  if (!isHmacValid) {
-    console.error("HMAC verification failed. Request denied.");
-    return json({ message: "Unauthorized: Invalid HMAC signature" }, { status: 401 });
-  }
-
+  let rawBody: string; // Declare rawBody here to use it later
   let payload: FlowActionPayload;
+
+  // 1. Verify HMAC Signature and get the raw body
   try {
-    const rawBody = await request.text();
+    rawBody = await verifyRequestAndGetBody(request); // Call the new function
+    console.log("[HMAC Verify] HMAC successfully verified in handle.ts."); // Confirm success
+
+    // 2. Validate Payload with Zod (using the rawBody obtained from HMAC verification)
     const parsedBody = JSON.parse(rawBody);
     payload = FlowActionPayloadSchema.parse(parsedBody);
     console.log("Payload successfully validated with Zod.");
+
   } catch (error) {
+    // If verifyRequestAndGetBody throws a Response (from json()), re-throw it directly
+    if (error instanceof Response) {
+      console.error("HMAC or Body parsing failed:", error.status, await error.text()); // Log for debugging
+      throw error;
+    }
+    // Handle Zod errors or any other parsing errors
     if (error instanceof ZodError) {
       console.error("Validation error:", error.errors);
-      return json(
+      throw json(
         { message: "Bad Request: Invalid payload structure", errors: error.errors },
         { status: 400 }
       );
     }
     console.error("Failed to parse request body or unknown validation error:", error);
-    return json({ message: "Bad Request: Invalid JSON or unexpected error" }, { status: 400 });
+    throw json({ message: "Bad Request: Invalid JSON or unexpected error" }, { status: 400 });
   }
+
 
   // 2. Extract core IDs and custom setting from Flow payload
   const shopId = payload.shop_id;
@@ -64,6 +71,15 @@ export async function action({ request }: ActionFunctionArgs) {
   console.log(`Processing Flow Action for Customer GID: ${customerGid}`);
   console.log(`Custom Setting: ${customSetting}`);
 
+  console.log("Request Headers (for authenticate.admin):");
+  try {
+      const headersObject = Object.fromEntries(request.headers.entries());
+      console.log(JSON.stringify(headersObject, null, 2));
+  } catch (e) {
+      console.error("Failed to log headers:", e);
+  }
+  
+  try {
     // 3. Authenticate with Shopify Admin API to fetch additional data
     const { admin } = await authenticate.admin(request);
     if (!admin) {
@@ -389,15 +405,14 @@ export async function action({ request }: ActionFunctionArgs) {
       payloadSent: billFreePayload
     });
 
-   
-  
-  // catch (error) {
-  //   console.error("Error during Flow Action execution:", error);
-  //   // Ensure this throws a proper HTTP response that Shopify Flow can understand.
-  //   // If it's a generic Error, return 500. If it's a Response object, re-throw it.
-  //   if (error instanceof Response) {
-  //     throw error; // Re-throw the Response object
-  //   }
-  //   throw new Response(`Internal Server Error during BillFree API call: ${error instanceof Error ? error.message : String(error)}`, { status: 500 });
-  // }
+  } 
+  catch (error) {
+    console.error("Error during Flow Action execution:", error);
+    // Ensure this throws a proper HTTP response that Shopify Flow can understand.
+    // If it's a generic Error, return 500. If it's a Response object, re-throw it.
+    if (error instanceof Response) {
+      throw error; // Re-throw the Response object
+    }
+    throw new Response(`Internal Server Error during BillFree API call: ${error instanceof Error ? error.message : String(error)}`, { status: 500 });
+  }
 } // End of action function
