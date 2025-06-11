@@ -96,32 +96,36 @@ export const FlowActionSettingsSchema = z.object({
 
 // --- Main Flow Action Payload Schema ---
 export const FlowActionPayloadSchema = z.object({
-  // These are the inputs you configured in shopify.extension.toml:
-  order_id: z.string().min(1, { message: "Order ID is required" }), // Corresponds to type="order_reference"
-  customer_id: z.string().min(1, { message: "Customer ID is required" }), // Corresponds to type="customer_reference"
-  "your-field-key": z.string().min(1, { message: "Custom field 'your-field-key' is required" }), // Corresponds to your single_line_text_field
-  
-  // This is the shop ID, which also comes as a top-level field
-  shop_id: z.string().min(1, { message: "Shop ID is required" }),
+  // shop_id is coming as a number according to your error, so adjust here.
+  // It's often a string in GID format, but if it's a number, we must accept that.
+  shop_id: z.number({ // <--- Changed to z.number()
+    required_error: "Shop ID is required",
+    invalid_type_error: "Shop ID must be a number",
+  }),
 
-  // This is the nested object that Shopify Flow sometimes includes,
-  // mirroring the top-level inputs. Make these optional as they are duplicates.
-  "shopify::properties": z.object({
-    order_id: z.string().optional(),
-    customer_id: z.string().optional(),
-    "your-field-key": z.string().optional(),
-  }).optional(),
+  // The actual inputs defined in your shopify.extension.toml are nested under 'properties'
+  properties: z.object({
+    order_id: z.string({
+      required_error: "Order ID is required in properties",
+      invalid_type_error: "Order ID must be a string",
+    }).min(1, { message: "Order ID cannot be empty" }),
 
-  // Add other standard Flow Action payload fields if they are consistently present
-  // (You can uncomment and refine these as needed if your flow sends them)
-  apiVersion: z.string().optional(),
-  id: z.string().optional(),
-  storeId: z.string().optional(),
-  flowId: z.string().optional(),
-  flowActionId: z.string().optional(),
-  handle: z.string().optional(),
+    customer_id: z.string({
+      required_error: "Customer ID is required in properties",
+      invalid_type_error: "Customer ID must be a string",
+    }).min(1, { message: "Customer ID cannot be empty" }),
+
+    // Use string literal for keys with hyphens
+    "your-field-key": z.string({
+      required_error: "Custom field 'your-field-key' is required in properties",
+      invalid_type_error: "Custom field 'your-field-key' must be a string",
+    }).min(1, { message: "Custom field 'your-field-key' cannot be empty" }),
+  }),
+  // Add other common top-level Flow Action payload fields if they exist and you need them:
   action_run_id: z.string().optional(),
   action_definition_id: z.string().optional(),
+  handle: z.string().optional(),
+  shopify_domain: z.string().optional(), // In case it comes as a top-level string for domain
 });
 
 // Optional: Infer TypeScript types from Zod schemas for strong typing

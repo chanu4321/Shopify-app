@@ -38,18 +38,14 @@ export async function action({ request }: ActionFunctionArgs) {
   try {
     // This is where you would place the core logic from your NestJS FlowActionService.
     // Example: Accessing order ID, customer ID, or settings from the validated payload
-    const orderGid = payload['shopify::properties']?.order_id || payload.order_id;
-    const customerGid = payload['shopify::properties']?.customer_id || payload.customer_id; // For customer GID
-    const customSetting = payload['shopify::properties']?.['your-field-key'] || payload['your-field-key']; // For your custom field
-
-// Note: The shop_id is a GID, not a domain. If you need the domain, you'll have to fetch it using the Admin API
-// or if Shopify Flow sends it as a separate input field.
-    const shopId = payload.shop_id; // This is a GID, e.g., "gid://shopify/Shop/76705431771"
-
+    const shopId = payload.shop_id; // Will now be a number
+    const orderGid = payload.properties.order_id;
+    const customerGid = payload.properties.customer_id;
+    const customSetting = payload.properties['your-field-key']; // Use bracket notation for keys with hyphens
+    console.log(`Processing Flow Action for Shop ID: ${shopId}`); // Corrected output
     console.log(`Processing Flow Action for Order GID: ${orderGid}`);
-    console.log(`From Shop GID: ${shopId}`); // Changed to shopId as per incoming JSON
+    console.log(`Processing Flow Action for Customer GID: ${customerGid}`);
     console.log(`Custom Setting: ${customSetting}`);
-    console.log(`Customer GID: ${customerGid}`); // Added for completeness
 
     // Call your actual business logic (e.g., update a database, make an Admin API call)
     // If your original service method was `flowActionService.handleFlowAction(payload)`,
