@@ -4,7 +4,7 @@ handle = "send-invoice"
 type = "flow_action"
 
 description = "Your description"
-runtime_url = "https://shopify-app-ten-pi.vercel.app/flow-action.handle"
+runtime_url = "https://shopify-app-ten-pi.vercel.app/flow-action/handle"
 
 [settings]
 
