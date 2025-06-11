@@ -89,21 +89,39 @@ const ShopTriggerPayloadSchema = z.object({
 export const FlowActionSettingsSchema = z.object({
   customerGid: z.string().optional(),
   yourFieldKey: z.string().optional(),
+  order_id: z.string().min(1, { message: "Order ID is required" }), // Corresponds to type="order_reference"
+  customer_id: z.string().min(1, { message: "Customer ID is required" }),
+  shop_id: z.string().min(1, { message: "Shop ID is required" }),
 });
 
 // --- Main Flow Action Payload Schema ---
 export const FlowActionPayloadSchema = z.object({
+  // These are the inputs you configured in shopify.extension.toml:
+  order_id: z.string().min(1, { message: "Order ID is required" }), // Corresponds to type="order_reference"
+  customer_id: z.string().min(1, { message: "Customer ID is required" }), // Corresponds to type="customer_reference"
+  "your-field-key": z.string().min(1, { message: "Custom field 'your-field-key' is required" }), // Corresponds to your single_line_text_field
+  
+  // This is the shop ID, which also comes as a top-level field
+  shop_id: z.string().min(1, { message: "Shop ID is required" }),
+
+  // This is the nested object that Shopify Flow sometimes includes,
+  // mirroring the top-level inputs. Make these optional as they are duplicates.
+  "shopify::properties": z.object({
+    order_id: z.string().optional(),
+    customer_id: z.string().optional(),
+    "your-field-key": z.string().optional(),
+  }).optional(),
+
+  // Add other standard Flow Action payload fields if they are consistently present
+  // (You can uncomment and refine these as needed if your flow sends them)
   apiVersion: z.string().optional(),
   id: z.string().optional(),
   storeId: z.string().optional(),
   flowId: z.string().optional(),
   flowActionId: z.string().optional(),
-  shop: ShopTriggerPayloadSchema.optional(),
-  order: OrderDataPayloadSchema.optional(),
-  shopDomain: z.string().optional(),
-  orderId: z.string().optional(), // gid://shopify/Order/6418174705883 (This is the crucial Order GID)
-  settings: FlowActionSettingsSchema.optional(), // Your custom action settings
-  'shopify::properties': z.record(z.any()).optional(), // Placeholder for any other properties Flow might send
+  handle: z.string().optional(),
+  action_run_id: z.string().optional(),
+  action_definition_id: z.string().optional(),
 });
 
 // Optional: Infer TypeScript types from Zod schemas for strong typing
