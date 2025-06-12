@@ -11,8 +11,7 @@ import { FlowActionPayloadSchema, FlowActionPayload } from "../utils/flow-action
 import { verifyRequestAndGetBody } from "../utils/hmac.server";
 import { ZodError } from "zod";
 import { authenticate, sessionStorage, apiVersion } from "../shopify.server";
-import shopify from "../shopify.server"; // Ensure this import is correct
-import clients from "@shopify/shopify-api";
+import { GraphqlClient } from "@shopify/shopify-api";
 
 // CORRECTED: Moved environment variable access inside the action function
 // These lines are now removed from global scope
@@ -81,9 +80,6 @@ export async function action({ request }: ActionFunctionArgs) {
       console.error("Failed to log headers:", e);
   }
 
-  const { admin } = await authenticate.admin(request);
-  console.log("THIS IS ADMIN:", admin);
-
   console.log("error starts from here");
 
   try {
@@ -98,7 +94,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
     // 2. Create the Admin API client using the loaded session.
     // This correctly authenticates your Admin API calls.
-    const admin = new clients.Admin({
+    const admin = new GraphqlClient({
       session,
       apiVersion: apiVersion, // Use the API version defined in your shopify.server.ts
     });
@@ -197,30 +193,33 @@ export async function action({ request }: ActionFunctionArgs) {
     `;
 
     // Extract raw IDs from GIDs
-    // const orderId = orderGid.split('/').pop();
-    // const customerId = customerGid.split('/').pop();
+    const orderId = orderGid;
+    const customerId = customerGid;
 
     if (!orderGid || !customerGid) {
         console.error("Failed to extract ID from Order GID or Customer GID.");
         throw new Response("Bad Request: Invalid Order or Customer GID format", { status: 400 });
     }
 
-    const response = await admin.graphql(ORDER_AND_CUSTOMER_QUERY, {
-      variables: {
-        orderId: orderGid, // Pass the extracted ID
-        customerId: customerGid, // Pass the extracted ID
-      },
+    const response = await admin.query({
+      data: {
+        query:     ORDER_AND_CUSTOMER_QUERY,
+        variables: { orderId, customerId }
+      }
     });
+    if (!response.body) {
+      console.error("Shopify GraphQL response missing body");
+      throw new Response("Internal Server Error: no data from Shopify", { status: 500 });
+    }
 
-    const responseJson = await response.json();
-    const orderData = responseJson.data?.order;
-    const customerData = responseJson.data?.customer;
-    console.log("Response from Shopify GraphQL API:", JSON.stringify(responseJson, null, 2));
+    const orderData = response.body.data.order;
+    const customerData = response.body.data.customer;
+    console.log("Response from Shopify GraphQL API:", JSON.stringify(response.body, null, 2));
     console.log("Order Data:", JSON.stringify(orderData, null, 2));
     console.log("Customer Data:", JSON.stringify(customerData, null, 2));
     
     if (!orderData || !customerData) {
-      console.error("Failed to fetch order or customer data:", responseJson.errors);
+      console.error("Failed to fetch order or customer data:", response.body.errors);
       throw new Response("Failed to fetch order or customer data from Shopify", { status: 500 });
     }
 
