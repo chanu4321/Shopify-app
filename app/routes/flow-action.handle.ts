@@ -10,9 +10,8 @@ import { ActionFunctionArgs, json } from "@remix-run/node";
 import { FlowActionPayloadSchema, FlowActionPayload } from "../utils/flow-action.schemas.server";
 import { verifyRequestAndGetBody } from "../utils/hmac.server";
 import { ZodError } from "zod";
-import { sessionStorage, apiVersion } from "../shopify.server";
-import { GraphqlClient } from "@shopify/shopify-api";
-import { c } from "node_modules/vite/dist/node/moduleRunnerTransport.d-DJ_mE5sf";
+import { shopify_api, sessionStorage } from "../shopify.server";
+
 interface GetOrderAndCustomerDetailsResponse {
   data: {
     order: {
@@ -149,13 +148,10 @@ export async function action({ request }: ActionFunctionArgs) {
     console.log("--- END DEBUGGING GraphqlClient Session ---");
     // 2. Create the Admin API client using the loaded session.
     // This correctly authenticates your Admin API calls.
-    const admin = new GraphqlClient({
-      session,
-      apiVersion: apiVersion, // Use the API version defined in your shopify.server.ts
-    });
-    GraphqlClient.config.isCustomStoreApp = false;
+    const client = new shopify_api.clients.Graphql({ session });
+
     // Your GraphQL query (already updated in your message, copy it here)
-    const ORDER_AND_CUSTOMER_QUERY = `
+    const ORDER_AND_CUSTOMER_QUERY =`
       query GetOrderAndCustomerDetails($orderId: ID!, $customerId: ID!) {
         order(id: $orderId) {
           id
@@ -257,7 +253,7 @@ export async function action({ request }: ActionFunctionArgs) {
         throw new Response("Bad Request: Invalid Order or Customer GID format", { status: 400 });
     }
 
-    const response = await admin.query<GetOrderAndCustomerDetailsResponse>({
+    const response = await client.query<GetOrderAndCustomerDetailsResponse>({
       data: {
         query:     ORDER_AND_CUSTOMER_QUERY,
         variables: { orderId, customerId }

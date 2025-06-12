@@ -7,7 +7,7 @@ import {
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
 import prisma from "./db.server";
 import { adminClientFactory } from "node_modules/@shopify/shopify-app-remix/dist/ts/server/clients";
-
+import { shopifyApi } from "@shopify/shopify-api";
 const shopify = shopifyApp({
   apiKey: process.env.SHOPIFY_API_KEY,
   apiSecretKey: process.env.SHOPIFY_API_SECRET || "",
@@ -20,8 +20,18 @@ const shopify = shopifyApp({
   distribution: AppDistribution.AppStore,
   unstable_newEmbeddedAuthStrategy: true,
   unstable_enableWebhooks: true,
+  isCustomStoreApp: false,
 });
 
+export const shopify_api = shopifyApi({
+  apiKey:          process.env.SHOPIFY_API_KEY!,
+  apiSecretKey:    process.env.SHOPIFY_API_SECRET!,
+  scopes:          process.env.SHOPIFY_SCOPES!.split(","),
+  hostName:        process.env.HOST_NAME!.replace(/^https?:\/\//, ""),
+  apiVersion:      ApiVersion.January25,
+  isCustomStoreApp: false,
+  isEmbeddedApp:   true
+});
 export default shopify;
 export const apiVersion = ApiVersion.January25;
 export const addDocumentResponseHeaders = shopify.addDocumentResponseHeaders;
