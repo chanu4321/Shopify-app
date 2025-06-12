@@ -282,8 +282,12 @@ export async function action({ request }: ActionFunctionArgs) {
     const billTime = orderCreatedAt.toTimeString().split(' ')[0];
 
     const custName = `${customerData.firstName || ""} ${customerData.lastName || ""}`.trim();
-    const userPhone = customerData.defaultPhoneNumber?.phoneNumber || "";
-
+    let userPhone1 = customerData.defaultPhoneNumber?.phoneNumber || "";
+    if (userPhone1.startsWith('+91')) {
+      userPhone1 = userPhone1.replace(/^\+91\s*/, ''); // Removes the first 3 characters (+91)
+    }
+    const userPhone = userPhone1;
+    const userEmail = customerData.defaultEmailAddress?.emailAddress || "";
     const custBday = customerData.custBdayMetafield?.value || "";
     const custAnniv = customerData.custAnnivMetafield?.value || "";
     const referrerPhone = customerData.referrerPhoneMetafield?.value || "";
@@ -406,6 +410,7 @@ export async function action({ request }: ActionFunctionArgs) {
       inv_no: orderData.name,
       bill_type: "sale",
       user_phone: userPhone,
+      user_email: userEmail,
       dial_code: "91",
       cust_name: custName,
       cust_bday: custBday,
