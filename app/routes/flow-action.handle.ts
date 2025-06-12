@@ -78,8 +78,12 @@ export async function action({ request }: ActionFunctionArgs) {
   } catch (e) {
       console.error("Failed to log headers:", e);
   }
+  
+  const { admin } = await authenticate.admin(request);
+  console.log("THIS IS ADMIN:", admin);
 
-  console.log("error starts from here")
+  console.log("error starts from here");
+
   try {
     // 3. Authenticate with Shopify Admin API to fetch additional data
     const { admin } = await authenticate.admin(request);
