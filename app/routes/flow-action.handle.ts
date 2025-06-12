@@ -29,17 +29,17 @@ export async function action({ request }: ActionFunctionArgs) {
 
   let rawBody: string; // Declare rawBody here to use it later
   let payload: FlowActionPayload;
-
+  
   // 1. Verify HMAC Signature and get the raw body
   try {
     rawBody = await verifyRequestAndGetBody(request); // Call the new function
     console.log("[HMAC Verify] HMAC successfully verified in handle.ts."); // Confirm success
-
+    console.log("this is the rawBody:", rawBody); // Log the raw body for debugging
     // 2. Validate Payload with Zod (using the rawBody obtained from HMAC verification)
     const parsedBody = JSON.parse(rawBody);
     payload = FlowActionPayloadSchema.parse(parsedBody);
     console.log("Payload successfully validated with Zod.");
-
+    console.log("Parsed Payload:", JSON.stringify(payload, null, 2)); // Log the parsed payload for debugging
   } catch (error) {
     // If verifyRequestAndGetBody throws a Response (from json()), re-throw it directly
     if (error instanceof Response) {
@@ -78,10 +78,12 @@ export async function action({ request }: ActionFunctionArgs) {
   } catch (e) {
       console.error("Failed to log headers:", e);
   }
-  
+
+  console.log("error starts from here")
   try {
     // 3. Authenticate with Shopify Admin API to fetch additional data
     const { admin } = await authenticate.admin(request);
+    console.log("THIS IS ADMIN:", admin); // Log the admin object for debugging
     if (!admin) {
       console.error("Shopify Admin authentication failed. Cannot fetch order/customer data.");
       return json({ message: "Internal Server Error: Admin API authentication failed" }, { status: 500 });
@@ -199,7 +201,10 @@ export async function action({ request }: ActionFunctionArgs) {
     const responseJson = await response.json();
     const orderData = responseJson.data?.order;
     const customerData = responseJson.data?.customer;
-
+    console.log("Response from Shopify GraphQL API:", JSON.stringify(responseJson, null, 2));
+    console.log("Order Data:", JSON.stringify(orderData, null, 2));
+    console.log("Customer Data:", JSON.stringify(customerData, null, 2));
+    
     if (!orderData || !customerData) {
       console.error("Failed to fetch order or customer data:", responseJson.errors);
       throw new Response("Failed to fetch order or customer data from Shopify", { status: 500 });
