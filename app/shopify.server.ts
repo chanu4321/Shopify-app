@@ -26,7 +26,7 @@ const shopify = shopifyApp({
 export const shopify_api = shopifyApi({
   apiKey:          process.env.SHOPIFY_API_KEY!,
   apiSecretKey:    process.env.SHOPIFY_API_SECRET!,
-  scopes:          process.env.SHOPIFY_SCOPES!.split(","),
+  scopes:          process.env.SCOPES?.split(","),
   hostName:        process.env.HOST_NAME!.replace(/^https?:\/\//, ""),
   apiVersion:      ApiVersion.January25,
   isCustomStoreApp: false,
@@ -40,4 +40,3 @@ export const unauthenticated = shopify.unauthenticated;
 export const login = shopify.login;
 export const registerWebhooks = shopify.registerWebhooks;
 export const sessionStorage = shopify.sessionStorage;
-
