@@ -485,16 +485,13 @@ export async function action({ request }: ActionFunctionArgs) {
     throw new Response(`Internal Server Error during BillFree API call: ${error instanceof Error ? error.message : String(error)}`, { status: 500 });
     }
   } catch (error) {
-  console.error("Error in Flow Action handler:", error);
-  // If it's a ZodError, return 400. If it's a Response object, re-throw it.
-  if (error instanceof ZodError) {
-    console.error("Zod validation error:", error.errors);
-    return json({ message: "Bad Request: Invalid payload structure", errors: error.errors }, { status: 400 });
-  }
   if (error instanceof Response) {
-    throw error; // Re-throw the Response object
+    // read and log the body of the Response so you know the real message
+    const text = await error.clone().text();
+    console.error("Flow Action threw Response:", text);
+    throw error; // re-throw so Remix will still send the correct 500
   }
   console.error("Unexpected error:", error);
-  return json({ message: "Internal Server Error", error: String(error) }, { status: 500 });
-  }
+  return json({ message: String(error) }, { status: 500 });
+}
 }
