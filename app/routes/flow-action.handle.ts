@@ -61,7 +61,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
 
   // 2. Extract core IDs and custom setting from Flow payload
-  const shopId = payload.shop_id;
+  const shopId = payload.shop_id_num;
   const orderGid = payload.properties.order_id;
   const customerGid = payload.properties.customer_id;
   // REMINDER: Make sure 'your-field-key' matches the actual key in your Shopify Flow custom properties
@@ -79,9 +79,9 @@ export async function action({ request }: ActionFunctionArgs) {
   } catch (e) {
       console.error("Failed to log headers:", e);
   }
-
+  console.log("domain:", payload.shopify_domain);
   console.log("error starts from here");
-
+  
   try {
     // 3. Authenticate with Shopify Admin API to fetch additional data
     const session = await sessionStorage.loadSession(`offline_${payload.shopify_domain}`);
@@ -91,7 +91,16 @@ export async function action({ request }: ActionFunctionArgs) {
       // If no session, you cannot make API calls. Return an appropriate error.
       throw json({ message: "Internal Server Error: No valid session found for shop. App may need re-installation." }, { status: 500 });
     }
-
+    
+    console.log("--- DEBUGGING GraphqlClient Session ---");
+    console.log("Session object details:");
+    console.log(`  Session ID: ${session.id}`);
+    console.log(`  Shop: ${session.shop}`); // Check the 'shop' property
+    console.log(`  Access Token (first 5 chars): ${session.accessToken?.substring(0, 5)}...`);
+    console.log(`  Is Online: ${session.isOnline}`);
+    console.log(`  Expires: ${session.expires}`);
+    console.log(`  Scope: ${session.scope}`);
+    console.log("--- END DEBUGGING GraphqlClient Session ---");
     // 2. Create the Admin API client using the loaded session.
     // This correctly authenticates your Admin API calls.
     const admin = new GraphqlClient({
