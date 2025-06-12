@@ -12,6 +12,7 @@ import { verifyRequestAndGetBody } from "../utils/hmac.server";
 import { ZodError } from "zod";
 import { sessionStorage, apiVersion } from "../shopify.server";
 import { GraphqlClient } from "@shopify/shopify-api";
+import { c } from "node_modules/vite/dist/node/moduleRunnerTransport.d-DJ_mE5sf";
 interface GetOrderAndCustomerDetailsResponse {
   data: {
     order: {
@@ -104,40 +105,39 @@ export async function action({ request }: ActionFunctionArgs) {
   }
 
 
-  // 2. Extract core IDs and custom setting from Flow payload
-  const shopId = payload.shop_id;
-  const orderGid = payload.properties.order_id;
-  const customerGid = payload.properties.customer_id;
-  // REMINDER: Make sure 'your-field-key' matches the actual key in your Shopify Flow custom properties
-  const customSetting = payload.properties['your-field-key'];
-
-  console.log(`Processing Flow Action for Shop ID: ${shopId}`);
-  console.log(`Processing Flow Action for Order GID: ${orderGid}`);
-  console.log(`Processing Flow Action for Customer GID: ${customerGid}`);
-  console.log(`Custom Setting: ${customSetting}`);
-
-  console.log("Request Headers :");
+  // 2. Process the Flow Action (Your NestJS service logic goes here)
   try {
+    // This is where you would place the core logic from your NestJS FlowActionService.
+    // Example: Accessing order ID, customer ID, or settings from the validated payload
+    const shopId = payload.shop_id; // Will now be a number
+    const orderGid = payload.properties.order_id;
+    const customerGid = payload.properties.customer_id;
+    const customSetting = payload.properties['your-field-key']; // Use bracket notation for keys with hyphens
+    console.log(`Processing Flow Action for Shop ID: ${shopId}`); // Corrected output
+    console.log(`Processing Flow Action for Order GID: ${orderGid}`);
+    console.log(`Processing Flow Action for Customer GID: ${customerGid}`);
+    console.log(`Custom Setting: ${customSetting}`);
+
+    console.log("Request Headers (for authenticate.admin):");
+    try {
       const headersObject = Object.fromEntries(request.headers.entries());
       console.log(JSON.stringify(headersObject, null, 2));
-  } catch (e) {
+    } catch (e) {
       console.error("Failed to log headers:", e);
-  }
-  console.log("domain:", payload.shopify_domain);
-  console.log("error starts from here");
+    }
+    console.log("domain:", payload.shopify_domain);
+    console.log("error starts from here");
   
-  try {
+    try {
     // 3. Authenticate with Shopify Admin API to fetch additional data
-    const sessionId = `offline_${payload.shopify_domain}`;
-    console.log(`Attempting to load session with ID: ${sessionId}`);
-    const session = await sessionStorage.loadSession(sessionId);
+      const session = await sessionStorage.loadSession(`offline_${payload.shopify_domain}`);
 
-    if (!session || !session.accessToken) {
+      if (!session || !session.accessToken) {
       console.error(`[Flow Action] No active session found for shop ID: ${shopId}. App needs to be installed/re-authenticated.`);
       // If no session, you cannot make API calls. Return an appropriate error.
       throw json({ message: "Internal Server Error: No valid session found for shop. App may need re-installation." }, { status: 500 });
-    }
-
+      }
+    
     console.log("--- DEBUGGING GraphqlClient Session ---");
     console.log("Session object details:");
     console.log(`  Session ID: ${session.id}`);
@@ -149,10 +149,9 @@ export async function action({ request }: ActionFunctionArgs) {
     console.log("--- END DEBUGGING GraphqlClient Session ---");
     // 2. Create the Admin API client using the loaded session.
     // This correctly authenticates your Admin API calls.
-
     const admin = new GraphqlClient({
       session,
-      apiVersion
+      apiVersion: apiVersion, // Use the API version defined in your shopify.server.ts
     });
     GraphqlClient.config.isCustomStoreApp = false;
     // Your GraphQL query (already updated in your message, copy it here)
@@ -253,54 +252,47 @@ export async function action({ request }: ActionFunctionArgs) {
     const orderId = orderGid;
     const customerId = customerGid;
 
-    if (!orderId || !customerId) {
+    if (!orderGid || !customerGid) {
         console.error("Failed to extract ID from Order GID or Customer GID.");
         throw new Response("Bad Request: Invalid Order or Customer GID format", { status: 400 });
     }
 
-    const gqlResponse = await admin.query({
+    const response = await admin.query<GetOrderAndCustomerDetailsResponse>({
       data: {
         query:     ORDER_AND_CUSTOMER_QUERY,
-        variables: { orderId: orderGid, customerId: customerGid }
+        variables: { orderId, customerId }
       }
-
     });
-    const responseData = gqlResponse.body;
-
-    if (!responseData) {
+    if (!response.body) {
       console.error("Shopify GraphQL response missing body");
       throw new Response("Internal Server Error: no data from Shopify", { status: 500 });
     }
 
-    const orderData = responseData["data"]["order"];
-    const customerData = responseData["data"]["customer"];
-    console.log("Response from Shopify GraphQL API:", JSON.stringify(responseData, null, 2));
+    const orderData = response.body.data.order;
+    const customerData = response.body.data.customer;
+    console.log("Response from Shopify GraphQL API:", JSON.stringify(response.body, null, 2));
     console.log("Order Data:", JSON.stringify(orderData, null, 2));
     console.log("Customer Data:", JSON.stringify(customerData, null, 2));
     
     if (!orderData || !customerData) {
-      console.error("Failed to fetch order or customer data:", responseData.errors);
+      console.error("Failed to fetch order or customer data:", response.body.errors);
       throw new Response("Failed to fetch order or customer data from Shopify", { status: 500 });
-    }
-    if (responseData.errors?.length) {
-        console.error("GraphQL Errors:", responseData.errors);
-        throw json({ message: "Shopify GraphQL API returned errors", errors: responseData.errors }, { status: 500 });
     }
 
     // --- BillFree Payload Construction ---
 
-    const orderCreatedAt = new Date(orderData["createdAt"]);
+    const orderCreatedAt = new Date(orderData.createdAt);
     const billDate = orderCreatedAt.toISOString().split('T')[0];
     const billTime = orderCreatedAt.toTimeString().split(' ')[0];
 
-    const custName = `${customerData["firstName"] || ""} ${customerData["lastName"] || ""}`.trim();
-    const userPhone = customerData["defaultPhoneNumber"]?.["phoneNumber"] || "";
+    const custName = `${customerData.firstName || ""} ${customerData.lastName || ""}`.trim();
+    const userPhone = customerData.defaultPhoneNumber?.phoneNumber || "";
 
-    const custBday = customerData["custBdayMetafield"]?.["value"] || "";
-    const custAnniv = customerData["custAnnivMetafield"]?.["value"] || "";
-    const referrerPhone = customerData["referrerPhoneMetafield"]?.["value"] || "";
+    const custBday = customerData.custBdayMetafield?.value || "";
+    const custAnniv = customerData.custAnnivMetafield?.value || "";
+    const referrerPhone = customerData.referrerPhoneMetafield?.value || "";
 
-    const particulars = (orderData["lineItems"]?.["edges"] || []).map((edge: any) => {
+    const particulars = orderData.lineItems.edges.map((edge: any) => {
       const item = edge.node;
       const originalUnitPrice = parseFloat(item.originalUnitPriceSet?.shopMoney?.amount || "0");
       const totalLineItemDiscount = parseFloat(item.totalDiscountSet?.shopMoney?.amount || "0");
@@ -320,22 +312,22 @@ export async function action({ request }: ActionFunctionArgs) {
       };
     });
 
-    const subtotal = orderData["lineItems"]["edges"].reduce((sum: number, edge: any) => {
+    const subtotal = orderData.lineItems.edges.reduce((sum: number, edge: any) => {
       const item = edge.node;
       const originalUnitPrice = parseFloat(item.originalUnitPriceSet?.shopMoney?.amount || "0");
       return sum + (originalUnitPrice * item.quantity);
     }, 0).toFixed(2);
 
-    const totalDiscountAmount = parseFloat(orderData["totalDiscountsSet"]?.["shopMoney"]?.["amount"] || "0").toFixed(2);
+    const totalDiscountAmount = parseFloat(orderData.totalDiscountsSet?.shopMoney?.amount || "0").toFixed(2);
 
     const additionalInfo = [
       { text: "SUBTOTAL", value: subtotal },
       { text: "Discount", value: totalDiscountAmount },
-      { text: "Total", value: parseFloat(orderData["totalPriceSet"]?.["shopMoney"]?.["amount"] || "0").toFixed(2) }
+      { text: "Total", value: parseFloat(orderData.totalPriceSet?.shopMoney?.amount || "0").toFixed(2) }
     ];
 
     const gstSummaryMap = new Map<string, { rate: number, taxable: number, cgst: number, sgst: number, igst: number, total: number }>();
-    orderData["lineItems"]["edges"].forEach((edge: any) => {
+    orderData.lineItems.edges.forEach((edge: any) => {
       const item = edge.node;
       const itemSalesPrice = parseFloat(item.originalUnitPriceSet?.shopMoney?.amount || "0") * item.quantity - parseFloat(item.totalDiscountSet?.shopMoney?.amount || "0");
       item.taxLines.forEach((taxLine: any) => {
@@ -391,7 +383,7 @@ export async function action({ request }: ActionFunctionArgs) {
     const paymentInfo: { text: string; value: string }[] = [];
     let cashPaidAmount = "0.00";
 
-    orderData["transactions"].forEach((transaction: any) => {
+    orderData.transactions.forEach((transaction: any) => {
       let paymentModeText = transaction.gateway || "Other";
       if (transaction.gateway === "bogus") {
         paymentModeText = "Cash";
@@ -415,7 +407,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
     const billFreePayload = {
       auth_token: BILLING_API_AUTH_TOKEN || "", // Use directly from const
-      inv_no: orderData["name"],
+      inv_no: orderData.name,
       bill_type: "sale",
       user_phone: userPhone,
       dial_code: "91",
@@ -427,17 +419,17 @@ export async function action({ request }: ActionFunctionArgs) {
       store_identifier: process.env.BILLFREE_STORE_IDENTIFIER || "", // From env var or fixed
       is_printed: "n",
       pts_redeemed: "",
-      coupon_redeemed: orderData["discountCodes"]?.[0] || "",
-      bill_amount: parseFloat(orderData["totalPriceSet"]?.["shopMoney"]?.["amount"] || "0").toFixed(2),
+      coupon_redeemed: orderData.discountCodes?.[0] || "",
+      bill_amount: parseFloat(orderData.totalPriceSet?.shopMoney?.amount || "0").toFixed(2),
       discount_amount: totalDiscountAmount,
       referrer_phone: referrerPhone,
       pts_balance: "",
       change_return: "",
       cash_paid: cashPaidAmount,
-      net_payable: parseFloat(orderData["totalPriceSet"]?.["shopMoney"]?.["amount"] || "0").toFixed(2),
-      round_off: parseFloat(orderData["totalCashRoundingAdjustment"]?.["paymentSet"]?.["shopMoney"]?.["amount"] || "0").toFixed(2),
+      net_payable: parseFloat(orderData.totalPriceSet?.shopMoney?.amount || "0").toFixed(2),
+      round_off: parseFloat(orderData.totalCashRoundingAdjustment?.paymentSet?.shopMoney?.amount || "0").toFixed(2),
       cashier_name: "",
-      remarks: orderData["note"] || "",
+      remarks: orderData.note || "",
       allow_points_accrual: "y",
       particulars: particulars,
       additional_info: additionalInfo,
@@ -487,8 +479,7 @@ export async function action({ request }: ActionFunctionArgs) {
       payloadSent: billFreePayload
     });
 
-  } 
-  catch (error) {
+    } catch (error) {
     console.error("Error during Flow Action execution:", error);
     // Ensure this throws a proper HTTP response that Shopify Flow can understand.
     // If it's a generic Error, return 500. If it's a Response object, re-throw it.
@@ -496,5 +487,18 @@ export async function action({ request }: ActionFunctionArgs) {
       throw error; // Re-throw the Response object
     }
     throw new Response(`Internal Server Error during BillFree API call: ${error instanceof Error ? error.message : String(error)}`, { status: 500 });
+    }
+  } catch (error) {
+  console.error("Error in Flow Action handler:", error);
+  // If it's a ZodError, return 400. If it's a Response object, re-throw it.
+  if (error instanceof ZodError) {
+    console.error("Zod validation error:", error.errors);
+    return json({ message: "Bad Request: Invalid payload structure", errors: error.errors }, { status: 400 });
   }
-} // End of action function
+  if (error instanceof Response) {
+    throw error; // Re-throw the Response object
+  }
+  console.error("Unexpected error:", error);
+  return json({ message: "Internal Server Error", error: String(error) }, { status: 500 });
+  }
+}
