@@ -86,16 +86,10 @@ const ShopTriggerPayloadSchema = z.object({
 });
 
 // Schema for the custom fields defined in shopify.extension.toml
-export const FlowActionSettingsSchema = z.object({
-  customerGid: z.string().optional(),
-  yourFieldKey: z.string().optional(),
-  order_id: z.string().min(1, { message: "Order ID is required" }), // Corresponds to type="order_reference"
-  customer_id: z.string().min(1, { message: "Customer ID is required" }),
-  shop_id: z.string().min(1, { message: "Shop ID is required" }),
-});
+
 
 // --- Main Flow Action Payload Schema ---
-export const FlowActionPayloadSchema = z.object({
+export const  FlowActionPayloadSchema = z.object({
   // shop_id is coming as a number according to your error, so adjust here.
   // It's often a string in GID format, but if it's a number, we must accept that.
   shop_id: z.number({ // <--- Changed to z.number()
@@ -130,4 +124,3 @@ export const FlowActionPayloadSchema = z.object({
 
 // Optional: Infer TypeScript types from Zod schemas for strong typing
 export type FlowActionPayload = z.infer<typeof FlowActionPayloadSchema>;
-export type FlowActionSettings = z.infer<typeof FlowActionSettingsSchema>;

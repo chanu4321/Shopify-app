@@ -1,91 +1,500 @@
-import { ActionFunctionArgs, json } from "@remix-run/node";
-import { FlowActionPayloadSchema, FlowActionPayload } from "../utils/flow-action.schemas.server"; // Import your Zod schema
-import { verifyFlowActionHmac } from "../utils/hmac.server"; // Import your HMAC verification utility
-import { ZodError } from "zod"; // Import ZodError for handling validation errors
-// import { authenticate } from "../shopify.server"; // You might need this if you interact with the Admin API later
+// app/routes/app.flow-action.handle.ts
 
+// This log should appear first if the module loads successfully.
+// If you don't see this, the issue is with Vercel's deployment/runtime loading the file.
+console.log("--- FLOW ACTION HANDLER MODULE LOADED ---");
+
+// CORRECTED: Import statement syntax
+import { ActionFunctionArgs, json } from "@remix-run/node";
+// Assuming these utility files exist and are correct
+import { FlowActionPayloadSchema, FlowActionPayload } from "../utils/flow-action.schemas.server";
+import { verifyRequestAndGetBody } from "../utils/hmac.server";
+import { ZodError } from "zod";
+import { sessionStorage, apiVersion } from "../shopify.server";
+import { GraphqlClient } from "@shopify/shopify-api";
+interface GetOrderAndCustomerDetailsResponse {
+  data: {
+    order: {
+      id: string;
+      name: string;
+      createdAt: string;
+      totalPriceSet: { shopMoney: { amount: string; currencyCode: string } };
+      totalDiscountsSet: { shopMoney: { amount: string; currencyCode: string } };
+      totalCashRoundingAdjustment?: { paymentSet: { shopMoney: { amount: string; currencyCode: string } } };
+      discountCodes: string[];
+      discountApplications: {
+        edges: { node: { allocationMethod: string; targetSelection: string; targetType: string; value: { __typename: string } } }[];
+      };
+      lineItems: {
+        edges: {
+          node: {
+            id: string;
+            name: string;
+            sku?: string;
+            quantity: number;
+            variantTitle?: string;
+            originalUnitPriceSet: { shopMoney: { amount: string; currencyCode: string } };
+            totalDiscountSet: { shopMoney: { amount: string; currencyCode: string } };
+            taxLines: { priceSet: { shopMoney: { amount: string; currencyCode: string } }; rate: number; title: string }[];
+            product?: { id: string; hsncode?: { value: string } };
+            variant?: { id: string; barcode?: { value: string } };
+          };
+        }[];
+      };
+      transactions: { id: string; kind: string; gateway: string; amountSet: { shopMoney: { amount: string; currencyCode: string } }; status: string }[];
+      note?: string; // Added 'note' property
+    };
+    customer: {
+      id: string;
+      firstName?: string;
+      lastName?: string;
+      defaultPhoneNumber?: { phoneNumber: string };
+      defaultEmailAddress?: { emailAddress: string };
+      custBdayMetafield?: { value: string };
+      custAnnivMetafield?: { value: string };
+      referrerPhoneMetafield?: { value: string };
+    };
+  };
+  errors?: any[]; // To capture GraphQL errors if any
+}
+// CORRECTED: Moved environment variable access inside the action function
+// These lines are now removed from global scope
+// const BILLING_API_AUTH_TOKEN = process.env.BILLING_API_AUTH_TOKEN;
+// const BILLING_API_BASE_URL = process.env.BILLING_API_BASE_URL;
+
+// CORRECTED: Consolidated and fixed action function definition
 export async function action({ request }: ActionFunctionArgs) {
   console.log("-----------------------------------------------");
+  console.log("--- FLOW ACTION HANDLER FUNCTION STARTED ---");
+  console.log("DEBUG_ENV_VAR_VALUE:", process.env.DEBUG); // Keep this for now for debug confirmation
   console.log("Incoming Flow Action request received.");
 
-  // 1. Verify HMAC Signature (Crucial for security)
-  const isHmacValid = await verifyFlowActionHmac(request);
-  if (!isHmacValid) {
-    console.error("HMAC verification failed. Request denied.");
-    return json({ message: "Unauthorized: Invalid HMAC signature" }, { status: 401 });
-  }
+  const BILLING_API_AUTH_TOKEN = process.env.BILLING_API_AUTH_TOKEN;
+  const BILLING_API_BASE_URL = process.env.BILLING_API_BASE_URL;
 
+  let rawBody: string; // Declare rawBody here to use it later
   let payload: FlowActionPayload;
+  
+  // 1. Verify HMAC Signature and get the raw body
   try {
-    const rawBody = await request.text(); // Get raw body for Zod parsing
-    const parsedBody = JSON.parse(rawBody); // Parse as JSON
-    payload = FlowActionPayloadSchema.parse(parsedBody); // Validate with Zod
+    rawBody = await verifyRequestAndGetBody(request); // Call the new function
+    console.log("[HMAC Verify] HMAC successfully verified in handle.ts."); // Confirm success
+    console.log("this is the rawBody:", rawBody); // Log the raw body for debugging
+    // 2. Validate Payload with Zod (using the rawBody obtained from HMAC verification)
+    const parsedBody = JSON.parse(rawBody);
+    payload = FlowActionPayloadSchema.parse(parsedBody);
     console.log("Payload successfully validated with Zod.");
-    // console.log("Validated Payload:", JSON.stringify(payload, null, 2)); // Log validated payload for debugging
+    console.log("Parsed Payload:", JSON.stringify(payload, null, 2)); // Log the parsed payload for debugging
   } catch (error) {
+    // If verifyRequestAndGetBody throws a Response (from json()), re-throw it directly
+    if (error instanceof Response) {
+      console.error("HMAC or Body parsing failed:", error.status, await error.text()); // Log for debugging
+      throw error;
+    }
+    // Handle Zod errors or any other parsing errors
     if (error instanceof ZodError) {
       console.error("Validation error:", error.errors);
-      return json(
+      throw json(
         { message: "Bad Request: Invalid payload structure", errors: error.errors },
         { status: 400 }
       );
     }
     console.error("Failed to parse request body or unknown validation error:", error);
-    return json({ message: "Bad Request: Invalid JSON or unexpected error" }, { status: 400 });
+    throw json({ message: "Bad Request: Invalid JSON or unexpected error" }, { status: 400 });
   }
 
-  // 2. Process the Flow Action (Your NestJS service logic goes here)
+
+  // 2. Extract core IDs and custom setting from Flow payload
+  const shopId = payload.shop_id;
+  const orderGid = payload.properties.order_id;
+  const customerGid = payload.properties.customer_id;
+  // REMINDER: Make sure 'your-field-key' matches the actual key in your Shopify Flow custom properties
+  const customSetting = payload.properties['your-field-key'];
+
+  console.log(`Processing Flow Action for Shop ID: ${shopId}`);
+  console.log(`Processing Flow Action for Order GID: ${orderGid}`);
+  console.log(`Processing Flow Action for Customer GID: ${customerGid}`);
+  console.log(`Custom Setting: ${customSetting}`);
+
+  console.log("Request Headers :");
   try {
-    // This is where you would place the core logic from your NestJS FlowActionService.
-    // Example: Accessing order ID, customer ID, or settings from the validated payload
-    const shopId = payload.shop_id; // Will now be a number
-    const orderGid = payload.properties.order_id;
-    const customerGid = payload.properties.customer_id;
-    const customSetting = payload.properties['your-field-key']; // Use bracket notation for keys with hyphens
-    console.log(`Processing Flow Action for Shop ID: ${shopId}`); // Corrected output
-    console.log(`Processing Flow Action for Order GID: ${orderGid}`);
-    console.log(`Processing Flow Action for Customer GID: ${customerGid}`);
-    console.log(`Custom Setting: ${customSetting}`);
+      const headersObject = Object.fromEntries(request.headers.entries());
+      console.log(JSON.stringify(headersObject, null, 2));
+  } catch (e) {
+      console.error("Failed to log headers:", e);
+  }
+  console.log("domain:", payload.shopify_domain);
+  console.log("error starts from here");
+  
+  try {
+    // 3. Authenticate with Shopify Admin API to fetch additional data
+    const sessionId = `offline_${payload.shopify_domain}`;
+    console.log(`Attempting to load session with ID: ${sessionId}`);
+    const session = await sessionStorage.loadSession(sessionId);
 
-    // Call your actual business logic (e.g., update a database, make an Admin API call)
-    // If your original service method was `flowActionService.handleFlowAction(payload)`,
-    // you would put that equivalent logic here or in a separate helper function.
+    if (!session || !session.accessToken) {
+      console.error(`[Flow Action] No active session found for shop ID: ${shopId}. App needs to be installed/re-authenticated.`);
+      // If no session, you cannot make API calls. Return an appropriate error.
+      throw json({ message: "Internal Server Error: No valid session found for shop. App may need re-installation." }, { status: 500 });
+    }
 
-    // Example of calling Shopify Admin API (if needed in your service logic):
-    // const { admin } = await authenticate.admin(request);
-    // const response = await admin.graphql(`... GraphQL query here ...`);
-    // const data = await response.json();
+    console.log("--- DEBUGGING GraphqlClient Session ---");
+    console.log("Session object details:");
+    console.log(`  Session ID: ${session.id}`);
+    console.log(`  Shop: ${session.shop}`); // Check the 'shop' property
+    console.log(`  Access Token (first 5 chars): ${session.accessToken?.substring(0, 5)}...`);
+    console.log(`  Is Online: ${session.isOnline}`);
+    console.log(`  Expires: ${session.expires}`);
+    console.log(`  Scope: ${session.scope}`);
+    console.log("--- END DEBUGGING GraphqlClient Session ---");
+    // 2. Create the Admin API client using the loaded session.
+    // This correctly authenticates your Admin API calls.
 
+    const admin = new GraphqlClient({
+      session,
+      apiVersion
+    });
+    GraphqlClient.config.isCustomStoreApp = false;
+    // Your GraphQL query (already updated in your message, copy it here)
+    const ORDER_AND_CUSTOMER_QUERY = `
+      query GetOrderAndCustomerDetails($orderId: ID!, $customerId: ID!) {
+        order(id: $orderId) {
+          id
+          name
+          createdAt
+          totalPriceSet {
+            shopMoney { amount currencyCode }
+          }
+          totalDiscountsSet {
+            shopMoney { amount currencyCode }
+          }
+          totalCashRoundingAdjustment {
+            paymentSet {
+              shopMoney { amount currencyCode }
+            }
+          }
+          discountCodes
+          discountApplications(first: 10) {
+            edges {
+              node {
+                allocationMethod
+                targetSelection
+                targetType
+                value {
+                  __typename
+                }
+              }
+            }
+          }
+          lineItems(first: 250) {
+            edges {
+              node {
+                id
+                name
+                sku
+                quantity
+                variantTitle
+                originalUnitPriceSet {
+                  shopMoney { amount currencyCode }
+                }
+                totalDiscountSet {
+                  shopMoney { amount currencyCode }
+                }
+                taxLines {
+                  priceSet {
+                    shopMoney { amount currencyCode }
+                  }
+                  rate
+                  title
+                }
+                product {
+                  id
+                  hsncode: metafield(namespace: "custom", key: "hsn_code") {
+                    value
+                  }
+                }
+                variant {
+                  id
+                  barcode: metafield(namespace: "custom", key: "barcode") {
+                    value
+                  }
+                }
+              }
+            }
+          }
+          transactions(first: 5) {
+              id
+              kind
+              gateway
+              amountSet {
+                  shopMoney { amount currencyCode }
+              }
+              status
+          }
+        }
+        customer(id: $customerId) {
+          id
+          firstName
+          lastName
+          defaultPhoneNumber {
+            phoneNumber
+          }
+          defaultEmailAddress {
+            emailAddress
+          }
+          custBdayMetafield: metafield(namespace: "custom", key: "cust_bday") { value }
+          custAnnivMetafield: metafield(namespace: "custom", key: "cust_anniv") { value }
+          referrerPhoneMetafield: metafield(namespace: "custom", key: "referrer_phone") { value }
+        }
+      }
+    `;
 
-    const result = {
-      message: "Flow Action processed and logic executed successfully in Remix!",
-      orderId: orderGid,
-      shopDomain: shopId,
-      customSettingReceived: customSetting,
-      timestamp: new Date().toISOString(),
-      // Add any specific data you want to return to Shopify Flow here
+    // Extract raw IDs from GIDs
+    const orderId = orderGid;
+    const customerId = customerGid;
+
+    if (!orderId || !customerId) {
+        console.error("Failed to extract ID from Order GID or Customer GID.");
+        throw new Response("Bad Request: Invalid Order or Customer GID format", { status: 400 });
+    }
+
+    const gqlResponse = await admin.query({
+      data: {
+        query:     ORDER_AND_CUSTOMER_QUERY,
+        variables: { orderId: orderGid, customerId: customerGid }
+      }
+
+    });
+    const responseData = gqlResponse.body;
+
+    if (!responseData) {
+      console.error("Shopify GraphQL response missing body");
+      throw new Response("Internal Server Error: no data from Shopify", { status: 500 });
+    }
+
+    const orderData = responseData["data"]["order"];
+    const customerData = responseData["data"]["customer"];
+    console.log("Response from Shopify GraphQL API:", JSON.stringify(responseData, null, 2));
+    console.log("Order Data:", JSON.stringify(orderData, null, 2));
+    console.log("Customer Data:", JSON.stringify(customerData, null, 2));
+    
+    if (!orderData || !customerData) {
+      console.error("Failed to fetch order or customer data:", responseData.errors);
+      throw new Response("Failed to fetch order or customer data from Shopify", { status: 500 });
+    }
+    if (responseData.errors?.length) {
+        console.error("GraphQL Errors:", responseData.errors);
+        throw json({ message: "Shopify GraphQL API returned errors", errors: responseData.errors }, { status: 500 });
+    }
+
+    // --- BillFree Payload Construction ---
+
+    const orderCreatedAt = new Date(orderData["createdAt"]);
+    const billDate = orderCreatedAt.toISOString().split('T')[0];
+    const billTime = orderCreatedAt.toTimeString().split(' ')[0];
+
+    const custName = `${customerData["firstName"] || ""} ${customerData["lastName"] || ""}`.trim();
+    const userPhone = customerData["defaultPhoneNumber"]?.["phoneNumber"] || "";
+
+    const custBday = customerData["custBdayMetafield"]?.["value"] || "";
+    const custAnniv = customerData["custAnnivMetafield"]?.["value"] || "";
+    const referrerPhone = customerData["referrerPhoneMetafield"]?.["value"] || "";
+
+    const particulars = (orderData["lineItems"]?.["edges"] || []).map((edge: any) => {
+      const item = edge.node;
+      const originalUnitPrice = parseFloat(item.originalUnitPriceSet?.shopMoney?.amount || "0");
+      const totalLineItemDiscount = parseFloat(item.totalDiscountSet?.shopMoney?.amount || "0");
+      const quantity = item.quantity;
+      const itemAmount = (originalUnitPrice * quantity - totalLineItemDiscount).toFixed(2);
+      const hsnCode = item.product?.metafield?.value || "";
+      const barcode = item.variant?.metafield?.value || "";
+      const gstRate = item.taxLines?.[0]?.rate ? (item.taxLines[0].rate * 100).toFixed(2) : "0.00";
+      return {
+        sku_id: item.sku || "",
+        description: item.name || "",
+        hsn: hsnCode,
+        gst: gstRate,
+        qty: quantity.toString(),
+        rate: originalUnitPrice.toFixed(2),
+        amount: itemAmount,
+      };
+    });
+
+    const subtotal = orderData["lineItems"]["edges"].reduce((sum: number, edge: any) => {
+      const item = edge.node;
+      const originalUnitPrice = parseFloat(item.originalUnitPriceSet?.shopMoney?.amount || "0");
+      return sum + (originalUnitPrice * item.quantity);
+    }, 0).toFixed(2);
+
+    const totalDiscountAmount = parseFloat(orderData["totalDiscountsSet"]?.["shopMoney"]?.["amount"] || "0").toFixed(2);
+
+    const additionalInfo = [
+      { text: "SUBTOTAL", value: subtotal },
+      { text: "Discount", value: totalDiscountAmount },
+      { text: "Total", value: parseFloat(orderData["totalPriceSet"]?.["shopMoney"]?.["amount"] || "0").toFixed(2) }
+    ];
+
+    const gstSummaryMap = new Map<string, { rate: number, taxable: number, cgst: number, sgst: number, igst: number, total: number }>();
+    orderData["lineItems"]["edges"].forEach((edge: any) => {
+      const item = edge.node;
+      const itemSalesPrice = parseFloat(item.originalUnitPriceSet?.shopMoney?.amount || "0") * item.quantity - parseFloat(item.totalDiscountSet?.shopMoney?.amount || "0");
+      item.taxLines.forEach((taxLine: any) => {
+        const rateKey = taxLine.rate.toFixed(2);
+        const taxAmount = parseFloat(taxLine.priceSet?.shopMoney?.amount || "0");
+        let taxableAmountForTaxLine = 0;
+        if (taxLine.rate > 0) {
+          taxableAmountForTaxLine = taxAmount / taxLine.rate;
+        } else {
+          taxableAmountForTaxLine = itemSalesPrice;
+        }
+        if (!gstSummaryMap.has(rateKey)) {
+          gstSummaryMap.set(rateKey, { rate: parseFloat(rateKey) * 100, taxable: 0, cgst: 0, sgst: 0, igst: 0, total: 0 });
+        }
+        const currentSummary = gstSummaryMap.get(rateKey)!;
+        currentSummary.taxable += taxableAmountForTaxLine;
+        currentSummary.total += taxAmount;
+        const taxTitle = taxLine.title?.toUpperCase();
+        if (taxTitle === "CGST") {
+          currentSummary.cgst += taxAmount;
+        } else if (taxTitle === "SGST") {
+          currentSummary.sgst += taxAmount;
+        } else if (taxTitle === "IGST") {
+          currentSummary.igst += taxAmount;
+        }
+      });
+    });
+
+    const gstSummary = Array.from(gstSummaryMap.values()).map(summary => ({
+      gst: summary.rate.toFixed(2),
+      taxable: summary.taxable.toFixed(2),
+      cgst: summary.cgst.toFixed(2),
+      sgst: summary.sgst.toFixed(2),
+      igst: summary.igst.toFixed(2),
+      total: summary.total.toFixed(2)
+    }));
+
+    const totalTaxableSummary = gstSummary.reduce((sum, entry) => sum + parseFloat(entry.taxable), 0).toFixed(2);
+    const totalCGSTSummary = gstSummary.reduce((sum, entry) => sum + parseFloat(entry.cgst), 0).toFixed(2);
+    const totalSGSTSummary = gstSummary.reduce((sum, entry) => sum + parseFloat(entry.sgst), 0).toFixed(2);
+    const totalIGSTSummary = gstSummary.reduce((sum, entry) => sum + parseFloat(entry.igst), 0).toFixed(2);
+    const totalGSTTotalSummary = gstSummary.reduce((sum, entry) => sum + parseFloat(entry.total), 0).toFixed(2);
+
+    gstSummary.push({
+      gst: "",
+      taxable: totalTaxableSummary,
+      cgst: totalCGSTSummary,
+      sgst: totalSGSTSummary,
+      igst: totalIGSTSummary,
+      total: totalGSTTotalSummary,
+    });
+
+    const paymentInfo: { text: string; value: string }[] = [];
+    let cashPaidAmount = "0.00";
+
+    orderData["transactions"].forEach((transaction: any) => {
+      let paymentModeText = transaction.gateway || "Other";
+      if (transaction.gateway === "bogus") {
+        paymentModeText = "Cash";
+      } else if (transaction.gateway === "shopify_payments") {
+        paymentModeText = "Credit Card";
+      }
+
+      paymentInfo.push({
+        text: "Payment Mode",
+        value: paymentModeText,
+      });
+      paymentInfo.push({
+        text: "Amount",
+        value: parseFloat(transaction.amountSet?.shopMoney?.amount || "0").toFixed(2),
+      });
+
+      if (transaction.kind === "SALE" && transaction.gateway === "bogus" && transaction.status === "SUCCESS") {
+        cashPaidAmount = parseFloat(transaction.amountSet?.shopMoney?.amount || "0").toFixed(2);
+      }
+    });
+
+    const billFreePayload = {
+      auth_token: BILLING_API_AUTH_TOKEN || "", // Use directly from const
+      inv_no: orderData["name"],
+      bill_type: "sale",
+      user_phone: userPhone,
+      dial_code: "91",
+      cust_name: custName,
+      cust_bday: custBday,
+      cust_anniv: custAnniv,
+      bill_date: billDate,
+      bill_time: billTime,
+      store_identifier: process.env.BILLFREE_STORE_IDENTIFIER || "", // From env var or fixed
+      is_printed: "n",
+      pts_redeemed: "",
+      coupon_redeemed: orderData["discountCodes"]?.[0] || "",
+      bill_amount: parseFloat(orderData["totalPriceSet"]?.["shopMoney"]?.["amount"] || "0").toFixed(2),
+      discount_amount: totalDiscountAmount,
+      referrer_phone: referrerPhone,
+      pts_balance: "",
+      change_return: "",
+      cash_paid: cashPaidAmount,
+      net_payable: parseFloat(orderData["totalPriceSet"]?.["shopMoney"]?.["amount"] || "0").toFixed(2),
+      round_off: parseFloat(orderData["totalCashRoundingAdjustment"]?.["paymentSet"]?.["shopMoney"]?.["amount"] || "0").toFixed(2),
+      cashier_name: "",
+      remarks: orderData["note"] || "",
+      allow_points_accrual: "y",
+      particulars: particulars,
+      additional_info: additionalInfo,
+      gst_summary: gstSummary,
+      payment_info: paymentInfo,
     };
 
-    console.log("Flow Action processed successfully. Sending response.");
-    return json(result, { status: 200 }); // Shopify Flow expects a 2xx response for success
+    // These logs are critical for debugging.
+    console.log("Generated BillFree Payload:", JSON.stringify(billFreePayload, null, 2));
+    console.log("DEBUG: About to make BillFree API call.");
+    console.log("DEBUG: BILLING_API_BASE_URL:", BILLING_API_BASE_URL); // Using BASE_URL
+    console.log("DEBUG: BILLING_API_AUTH_TOKEN (first 5 chars):", BILLING_API_AUTH_TOKEN?.substring(0, 5) + '...');
+    console.log("DEBUG: BillFree Payload (partial):", JSON.stringify(billFreePayload, null, 2).substring(0, 500) + '...');
 
-  } catch (error) {
-    console.error(`Error processing Flow Action logic: ${error.message}`, error.stack);
-    // Return a 4xx or 5xx response for failures so Shopify Flow can retry or mark as failed
-    return json(
-      {
-        message: 'Failed to process Flow Action',
-        details: error.message,
-        error: true,
+    // --- Make the actual API call to BillFree ---
+    // Added a more robust check for the base URL.
+    if (!BILLING_API_BASE_URL || !BILLING_API_AUTH_TOKEN) {
+      console.error("ERROR: BILLING_API_BASE_URL or BILLING_API_AUTH_TOKEN environment variable is not set!");
+      // Throw an error that your outer catch block can handle
+      throw new Error("Missing BillFree API configuration environment variables.");
+    }
+
+    const billFreeApiResponse = await fetch(BILLING_API_BASE_URL, { // Using BASE_URL
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        // No Authorization header, as per your confirmation.
       },
-      { status: error.status || 500 } // Use error status if available, else 500
-    );
-  } finally {
-    console.log("-----------------------------------------------");
-  }
-}
+      body: JSON.stringify(billFreePayload),
+    });
 
-// Optional: Prevent direct GET requests to this action endpoint
-export async function loader() {
-  return json({ message: "This endpoint is for POST requests only." }, { status: 405 }); // Method Not Allowed
-}
+    const billFreeResponseData = await billFreeApiResponse.json();
+
+    if (!billFreeApiResponse.ok) {
+      console.error("BillFree API Error:", billFreeApiResponse.status, billFreeResponseData);
+      throw new Response(
+        `BillFree API Integration Failed (Status: ${billFreeApiResponse.status}): ${JSON.stringify(billFreeResponseData)}`,
+        { status: billFreeApiResponse.status }
+      );
+    }
+
+    console.log("BillFree API Success:", billFreeResponseData);
+
+    return json({
+      message: "Flow Action executed successfully and BillFree payload sent.",
+      billFreeResponse: billFreeResponseData,
+      payloadSent: billFreePayload
+    });
+
+  } 
+  catch (error) {
+    console.error("Error during Flow Action execution:", error);
+    // Ensure this throws a proper HTTP response that Shopify Flow can understand.
+    // If it's a generic Error, return 500. If it's a Response object, re-throw it.
+    if (error instanceof Response) {
+      throw error; // Re-throw the Response object
+    }
+    throw new Response(`Internal Server Error during BillFree API call: ${error instanceof Error ? error.message : String(error)}`, { status: 500 });
+  }
+} // End of action function
