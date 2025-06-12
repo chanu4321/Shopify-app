@@ -84,7 +84,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
   try {
     // 3. Authenticate with Shopify Admin API to fetch additional data
-    const session = await sessionStorage.loadSession(String(shopId));
+    const session = await sessionStorage.loadSession(`offline_${payload.shopify_domain}`);
 
     if (!session || !session.accessToken) {
       console.error(`[Flow Action] No active session found for shop ID: ${shopId}. App needs to be installed/re-authenticated.`);
