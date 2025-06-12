@@ -98,7 +98,7 @@ export const FlowActionSettingsSchema = z.object({
 export const FlowActionPayloadSchema = z.object({
   // shop_id is coming as a number according to your error, so adjust here.
   // It's often a string in GID format, but if it's a number, we must accept that.
-  shop_id: z.number({ // <--- Changed to z.number()
+  shop_id: z.string({ // <--- Changed to z.number()
     required_error: "Shop ID is required",
     invalid_type_error: "Shop ID must be a number",
   }),

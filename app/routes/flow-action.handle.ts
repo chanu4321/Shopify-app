@@ -10,7 +10,9 @@ import { ActionFunctionArgs, json } from "@remix-run/node";
 import { FlowActionPayloadSchema, FlowActionPayload } from "../utils/flow-action.schemas.server";
 import { verifyRequestAndGetBody } from "../utils/hmac.server";
 import { ZodError } from "zod";
-import { authenticate } from "../shopify.server";
+import { authenticate, sessionStorage, apiVersion } from "../shopify.server";
+import shopify from "../shopify.server"; // Ensure this import is correct
+import clients from "@shopify/shopify-api";
 
 // CORRECTED: Moved environment variable access inside the action function
 // These lines are now removed from global scope
@@ -78,7 +80,7 @@ export async function action({ request }: ActionFunctionArgs) {
   } catch (e) {
       console.error("Failed to log headers:", e);
   }
-  
+
   const { admin } = await authenticate.admin(request);
   console.log("THIS IS ADMIN:", admin);
 
@@ -86,12 +88,20 @@ export async function action({ request }: ActionFunctionArgs) {
 
   try {
     // 3. Authenticate with Shopify Admin API to fetch additional data
-    const { admin } = await authenticate.admin(request);
-    console.log("THIS IS ADMIN:", admin); // Log the admin object for debugging
-    if (!admin) {
-      console.error("Shopify Admin authentication failed. Cannot fetch order/customer data.");
-      return json({ message: "Internal Server Error: Admin API authentication failed" }, { status: 500 });
+    const session = await sessionStorage.loadSession(shopId);
+
+    if (!session || !session.accessToken) {
+      console.error(`[Flow Action] No active session found for shop ID: ${shopId}. App needs to be installed/re-authenticated.`);
+      // If no session, you cannot make API calls. Return an appropriate error.
+      throw json({ message: "Internal Server Error: No valid session found for shop. App may need re-installation." }, { status: 500 });
     }
+
+    // 2. Create the Admin API client using the loaded session.
+    // This correctly authenticates your Admin API calls.
+    const admin = new clients.Admin({
+      session,
+      apiVersion: apiVersion, // Use the API version defined in your shopify.server.ts
+    });
     // Your GraphQL query (already updated in your message, copy it here)
     const ORDER_AND_CUSTOMER_QUERY = `
       query GetOrderAndCustomerDetails($orderId: ID!, $customerId: ID!) {

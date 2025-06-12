@@ -17,6 +17,7 @@ const shopify = shopifyApp({
   sessionStorage: new PrismaSessionStorage(prisma),
   EnableGraphiQL: true,
   distribution: AppDistribution.AppStore,
+  
 });
 
 
