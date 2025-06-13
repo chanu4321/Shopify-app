@@ -5,6 +5,7 @@ import { Page, Layout, Card, Text, TextField, Button, Banner, BlockStack } from 
 import { TitleBar } from "@shopify/app-bridge-react";
 import shopify from "../shopify.server";
 import db from "../db.server"; // Your Prisma client instance
+import { useState, useEffect } from "react";
 
 // --- LOADER FUNCTION ---
 export async function loader({ request }: LoaderFunctionArgs) {
@@ -54,6 +55,13 @@ export default function BillFreeSettings() {
   const { billFreeAuthToken, isBillFreeConfigured } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
 
+  const [authTokenInput, setAuthTokenInput] = useState(billFreeAuthToken);
+  useEffect(() => {
+    setAuthTokenInput(billFreeAuthToken);
+  }, [billFreeAuthToken]);
+  const handleAuthTokenChange = (value: string) => {
+    setAuthTokenInput(value);
+  };
   return (
     <Page>
       <TitleBar title="BillFree Integration Settings" />
@@ -71,8 +79,8 @@ export default function BillFreeSettings() {
                 <TextField
                   label="BillFree Auth Token"
                   name="billFreeAuthToken"
-                  value={billFreeAuthToken}
-                  onChange={() => { /* React controlled component onChange handler */ }}
+                  value={authTokenInput}
+                  onChange={handleAuthTokenChange}
                   autoComplete="off"
                   helpText="Your secret token for BillFree API calls."
                 />
