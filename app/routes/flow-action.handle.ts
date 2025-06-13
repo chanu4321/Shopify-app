@@ -11,7 +11,7 @@ import { FlowActionPayloadSchema, FlowActionPayload } from "../utils/flow-action
 import { verifyRequestAndGetBody } from "../utils/hmac.server";
 import { ZodError } from "zod";
 import { shopify_api, sessionStorage } from "../shopify.server";
-
+import db from "../db.server"; // Assuming you have a Prisma client instance for database operations
 interface GetOrderAndCustomerDetailsResponse {
   data: {
     order: {
@@ -404,9 +404,29 @@ export async function action({ request }: ActionFunctionArgs) {
         cashPaidAmount = parseFloat(transaction.amountSet?.shopMoney?.amount || "0").toFixed(2);
       }
     });
+    
+    const shopDomain = payload.shopify_domain;
+if (!shopDomain) {
+  console.error("Shop domain not found in Flow payload.");
+  return json({ message: "Shop domain is missing from payload" }, { status: 400 });
+}
+
+const offlineSessionId = `offline_${shopDomain}`; // This correctly constructs the ID
+
+const shopSession = await db.session.findUnique({
+  where: { id: offlineSessionId }, // This correctly looks up the offline session
+  select: { billFreeAuthToken: true, isBillFreeConfigured: true },
+});
+
+if (!shopSession || !shopSession.isBillFreeConfigured || !shopSession.billFreeAuthToken) {
+  console.error(`BillFree not configured or token missing for shop: ${shopDomain} (Session ID: ${offlineSessionId})`);
+  return json({ message: "BillFree integration not configured for this shop." }, { status: 400 });
+}
+
+const billFreeAuthToken = shopSession.billFreeAuthToken;
 
     const billFreePayload = {
-      auth_token: BILLING_API_AUTH_TOKEN || "", // Use directly from const
+      auth_token: billFreeAuthToken || "", // Use directly from const
       inv_no: orderData.name,
       bill_type: "sale",
       user_phone: userPhone,

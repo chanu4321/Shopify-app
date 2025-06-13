@@ -9,10 +9,10 @@ import db from "../db.server"; // Your Prisma client instance
 // --- LOADER FUNCTION ---
 export async function loader({ request }: LoaderFunctionArgs) {
   const { session } = await shopify.authenticate.admin(request);
-
+  const offlineSessionId = `offline_${session.shop}`;
   // Fetch the current BillFree configuration from your database
   const shopSession = await db.session.findUnique({
-    where: { id: session.id },
+    where: { id: offlineSessionId },
     select: { billFreeAuthToken: true, isBillFreeConfigured: true },
   });
 
@@ -26,6 +26,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 // --- ACTION FUNCTION ---
 export async function action({ request }: ActionFunctionArgs) {
   const { session } = await shopify.authenticate.admin(request);
+  const offlineSessionId = `offline_${session.shop}`;
   const formData = await request.formData();
   const billFreeAuthToken = formData.get("billFreeAuthToken")?.toString();
 
@@ -35,7 +36,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
   try {
     await db.session.update({
-      where: { id: session.id },
+      where: { id: offlineSessionId },
       data: {
         billFreeAuthToken: billFreeAuthToken.trim(),
         isBillFreeConfigured: true,
