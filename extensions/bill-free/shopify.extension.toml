@@ -1,0 +1,23 @@
+[[extensions]]
+name = "t:name"
+handle = "billfree"
+type = "flow_template"
+
+description = "t:description"
+
+[extensions.template]
+
+categories = ["orders", "risk"]
+
+module = "./template.flow"
+
+# When require_app is true your template will only be visible to users who have
+# your app installed. Below are the common selections:
+# Public apps require_app = false
+# Non public apps require_app = true
+
+require_app = false
+
+discoverable = true
+
+enabled = true

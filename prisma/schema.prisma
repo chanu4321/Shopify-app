@@ -31,4 +31,6 @@ model Session {
   emailVerified Boolean?  @default(false)
   billFreeAuthToken   String?
   isBillFreeConfigured Boolean @default(false)
+  billFreeWorkflowId        String?
+  isBillFreeWorkflowEnabled Boolean   @default(false)   @@index([shop])
 }

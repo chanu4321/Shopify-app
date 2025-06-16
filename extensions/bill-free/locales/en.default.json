@@ -1,0 +1,5 @@
+{
+  "name": "Send invoice template",
+  "description": "This template allows you to send an invoice to a customer for a one-time payment.",
+  "preInstallNote": "This template requires the Bill Free app to be installed."
+}
