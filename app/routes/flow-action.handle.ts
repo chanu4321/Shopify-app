@@ -12,51 +12,28 @@ import { verifyRequestAndGetBody } from "../utils/hmac.server";
 import { ZodError } from "zod";
 import { shopify_api, sessionStorage } from "../shopify.server";
 import db from "../db.server"; // Assuming you have a Prisma client instance for database operations
-interface GetOrderAndCustomerDetailsResponse {
-  data: {
-    order: {
-      id: string;
-      name: string;
-      createdAt: string;
-      totalPriceSet: { shopMoney: { amount: string; currencyCode: string } };
-      totalDiscountsSet: { shopMoney: { amount: string; currencyCode: string } };
-      totalCashRoundingAdjustment?: { paymentSet: { shopMoney: { amount: string; currencyCode: string } } };
-      discountCodes: string[];
-      discountApplications: {
-        edges: { node: { allocationMethod: string; targetSelection: string; targetType: string; value: { __typename: string } } }[];
-      };
-      lineItems: {
-        edges: {
-          node: {
-            id: string;
-            name: string;
-            sku?: string;
-            quantity: number;
-            variantTitle?: string;
-            originalUnitPriceSet: { shopMoney: { amount: string; currencyCode: string } };
-            totalDiscountSet: { shopMoney: { amount: string; currencyCode: string } };
-            taxLines: { priceSet: { shopMoney: { amount: string; currencyCode: string } }; rate: number; title: string }[];
-            product?: { id: string; hsncode?: { value: string } };
-            variant?: { id: string; barcode?: { value: string } };
-          };
-        }[];
-      };
-      transactions: { id: string; kind: string; gateway: string; amountSet: { shopMoney: { amount: string; currencyCode: string } }; status: string }[];
-      note?: string; // Added 'note' property
-    };
-    customer: {
-      id: string;
-      firstName?: string;
-      lastName?: string;
-      defaultPhoneNumber?: { phoneNumber: string };
-      defaultEmailAddress?: { emailAddress: string };
-      custBdayMetafield?: { value: string };
-      custAnnivMetafield?: { value: string };
-      referrerPhoneMetafield?: { value: string };
-    };
-  };
-  errors?: any[]; // To capture GraphQL errors if any
-}
+import { Mappings , GetOrderAndCustomerDetailsResponse} from "../utils/types"; // Assuming you have a type definition for Mappings
+
+const getNestedValue = (obj: any, path: string): any | undefined => {
+  if (!obj || !path) return undefined;
+  const parts = path.split('.');
+  let current = obj;
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    if (current === undefined || current === null) { // Handle undefined/null mid-path
+      return undefined;
+    }
+    if (Array.isArray(current) && !isNaN(parseInt(part))) {
+      current = current[parseInt(part)];
+    } else if (typeof current === 'object' && current.hasOwnProperty(part)) {
+      current = current[part];
+    } else {
+      return undefined;
+    }
+  }
+  return current;
+};
+
 // CORRECTED: Moved environment variable access inside the action function
 // These lines are now removed from global scope
 // const BILLING_API_AUTH_TOKEN = process.env.BILLING_API_AUTH_TOKEN;
@@ -204,12 +181,15 @@ export async function action({ request }: ActionFunctionArgs) {
                 }
                 product {
                   id
+                  title
+                  productType
                   hsncode: metafield(namespace: "custom", key: "hsn_code") {
                     value
                   }
                 }
                 variant {
                   id
+                  title
                   barcode: metafield(namespace: "custom", key: "barcode") {
                     value
                   }
@@ -301,6 +281,7 @@ export async function action({ request }: ActionFunctionArgs) {
       const hsnCode = item.product?.metafield?.value || "";
       const barcode = item.variant?.metafield?.value || "";
       const gstRate = item.taxLines?.[0]?.rate ? (item.taxLines[0].rate * 100).toFixed(2) : "0.00";
+      const article = articleValue || "" || item.product?.productType;
       return {
         sku_id: item.sku || "",
         description: item.name || "",
@@ -309,6 +290,7 @@ export async function action({ request }: ActionFunctionArgs) {
         qty: quantity.toString(),
         rate: originalUnitPrice.toFixed(2),
         amount: itemAmount,
+        article: article,
       };
     });
 
@@ -415,7 +397,7 @@ const offlineSessionId = `offline_${shopDomain}`; // This correctly constructs t
 
 const shopSession = await db.session.findUnique({
   where: { id: offlineSessionId }, // This correctly looks up the offline session
-  select: { billFreeAuthToken: true, isBillFreeConfigured: true },
+  select: { billFreeAuthToken: true, isBillFreeConfigured: true, fieldMappings: true },
 });
 
 if (!shopSession || !shopSession.isBillFreeConfigured || !shopSession.billFreeAuthToken) {
@@ -424,7 +406,23 @@ if (!shopSession || !shopSession.isBillFreeConfigured || !shopSession.billFreeAu
 }
 
 const billFreeAuthToken = shopSession.billFreeAuthToken;
+const fieldMappingsRaw = shopSession.fieldMappings;
+      let fieldMappings: Mappings = {}
 
+if (typeof fieldMappingsRaw === 'object' && fieldMappingsRaw !== null) {
+        fieldMappings = fieldMappingsRaw as Mappings;
+      } else {
+        console.warn(`[Flow Action] fieldMappings from DB is not an object or is null, found type: ${typeof fieldMappingsRaw}, value: ${fieldMappingsRaw}`);
+      }
+ // Dynamically get coupon_redeemed and article based on stored mappings
+      const couponRedeemedPath = fieldMappings.coupon_redeemed;
+      const couponRedeemedValue = couponRedeemedPath ? getNestedValue(orderData, couponRedeemedPath) : "";
+      console.log(`Mapped Coupon Redeemed Path: ${couponRedeemedPath}, Value: ${couponRedeemedValue}`);
+
+      const articlePath = fieldMappings.article;
+      const articleValue = articlePath ? getNestedValue(orderData, articlePath) : "";
+      console.log(`Mapped Article Path: ${articlePath}, Value: ${articleValue}`);
+      
     const billFreePayload = {
       auth_token: billFreeAuthToken || "", // Use directly from const
       inv_no: orderData.name,
@@ -440,7 +438,7 @@ const billFreeAuthToken = shopSession.billFreeAuthToken;
       store_identifier: process.env.BILLFREE_STORE_IDENTIFIER || "", // From env var or fixed
       is_printed: "n",
       pts_redeemed: "",
-      coupon_redeemed: orderData.discountCodes?.[0] || "",
+      coupon_redeemed: couponRedeemedValue || orderData.discountCodes?.[0] || "",
       bill_amount: parseFloat(orderData.totalPriceSet?.shopMoney?.amount || "0").toFixed(2),
       discount_amount: totalDiscountAmount,
       referrer_phone: referrerPhone,
