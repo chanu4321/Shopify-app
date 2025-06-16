@@ -253,7 +253,7 @@ export default function FieldMappingPage() {
 
                 return (
                   <div key={billFreeField.value} style={{ marginBottom: '24px' }}>
-                    <FormLayout.Group condensed>
+                    <FormLayout.Group>
                       <Select
                         label="BillFree Field"
                         options={[{ label: billFreeField.label, value: billFreeField.value }]}
@@ -264,20 +264,20 @@ export default function FieldMappingPage() {
                       <Select
                         label="Maps To Shopify Field"
                         options={availableShopifyOptions}
-                        onChange={(selectedValue) =>
+                        onChange={(selectedValue) => 
                           handleMappingChange(currentBillFreeFieldKey, selectedValue)
                         }
                         value={currentSelectedShopifyField}
                         placeholder="Select a Shopify field"
                       />
                       {/* Minus button for removal */}
-                      <Button
-                        onClick={() => handleRemoveField(currentBillFreeFieldKey)}
-                        icon={DeleteIcon} // Use DeleteIcon for a clear 'x' or trash icon
-                        accessibilityLabel={`Remove ${billFreeField.label} mapping`}
-                        // Make it a plain icon button
-                       // Give it a red tint for destructive action
-                      />
+                      <Box paddingBlockStart="200" paddingBlockEnd="200"> {/* Adjust padding as needed */}
+                        <Button
+                          onClick={() => handleRemoveField(currentBillFreeFieldKey)}
+                          icon={DeleteIcon} // Use DeleteIcon as a component
+                          accessibilityLabel={`Remove ${billFreeField.label} mapping`}
+                         />
+                      </Box>
                     </FormLayout.Group>
                   </div>
                 );
@@ -328,19 +328,19 @@ export default function FieldMappingPage() {
       <Page>
         <Layout>
           {renderMappingSection(
-            "Item Mapping",
+            "Items",
             "Configure mappings for item-related information in BillFree.",
             "item"
           )}
 
           {renderMappingSection(
-            "Additional Info Mapping",
+            "Additional Info",
             "Configure mappings for general order information.",
             "additional_info"
           )}
 
           {renderMappingSection(
-            "Payment Info Mapping",
+            "Payment Info",
             "Configure mappings for payment-related details.",
             "payment_info"
           )}
