@@ -32,5 +32,7 @@ model Session {
   billFreeAuthToken   String?
   isBillFreeConfigured Boolean @default(false)
   billFreeWorkflowId        String?
-  isBillFreeWorkflowEnabled Boolean   @default(false)   @@index([shop])
+  isBillFreeWorkflowEnabled Boolean   @default(false)
+  fieldMappings     Json?
+  @@index([shop])
 }

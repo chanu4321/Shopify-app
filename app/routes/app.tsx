@@ -26,6 +26,7 @@ export default function App() {
         </Link>
         <Link to="/app/additional">Additional page</Link>
         <Link to="/app/settings">Settings</Link>
+        <Link to="/app/field-mapping" rel="field-mapping">Field Mapping</Link>
       </NavMenu>
       <Outlet />
     </AppProvider>
