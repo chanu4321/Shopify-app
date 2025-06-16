@@ -419,9 +419,26 @@ if (typeof fieldMappingsRaw === 'object' && fieldMappingsRaw !== null) {
       const couponRedeemedValue = couponRedeemedPath ? getNestedValue(orderData, couponRedeemedPath) : "";
       console.log(`Mapped Coupon Redeemed Path: ${couponRedeemedPath}, Value: ${couponRedeemedValue}`);
 
+// --- Handle 'article' based on the new special mapping ---
       const articlePath = fieldMappings.article;
-      const articleValue = articlePath ? getNestedValue(orderData, articlePath) : "";
-      console.log(`Mapped Article Path: ${articlePath}, Value: ${articleValue}`);
+      let articleValue: string = "";
+
+      if (articlePath === "AGGREGATE_LINE_ITEMS_PRODUCT_INFO" && orderData.lineItems?.edges) {
+          const productInfoList = orderData.lineItems.edges.map(edge => {
+              const item = edge.node;
+              // Prioritize productType, then product title, then variant title, then line item name
+              return item.productType || item.product?.productType || item.product?.title || item.variant?.title || item.name;
+          }).filter(Boolean); // Filter out any empty/null/undefined strings
+
+          // Join unique product information, if any
+          articleValue = [...new Set(productInfoList)].join(', ');
+          console.log(`Aggregated Article Value: ${articleValue}`);
+      } else {
+          // For other specific paths, use getNestedValue as before
+          articleValue = articlePath ? getNestedValue(orderData, articlePath) : "";
+          console.log(`Mapped Article Path: ${articlePath}, Value: ${articleValue}`);
+      }
+      // --- End 'article' handling ---
       
     const billFreePayload = {
       auth_token: billFreeAuthToken || "", // Use directly from const
