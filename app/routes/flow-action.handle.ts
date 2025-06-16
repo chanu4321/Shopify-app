@@ -12,7 +12,7 @@ import { verifyRequestAndGetBody } from "../utils/hmac.server";
 import { ZodError } from "zod";
 import { shopify_api, sessionStorage } from "../shopify.server";
 import db from "../db.server"; // Assuming you have a Prisma client instance for database operations
-import { Mappings , GetOrderAndCustomerDetailsResponse} from "../utils/types"; // Assuming you have a type definition for Mappings
+import { Mappings, GetOrderAndCustomerDetailsResponse } from "../utils/types"; // Assuming you have a type definition for Mappings
 
 const getNestedValue = (obj: any, path: string): any | undefined => {
   if (!obj || !path) return undefined;
@@ -51,7 +51,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
   let rawBody: string; // Declare rawBody here to use it later
   let payload: FlowActionPayload;
-  
+
   // 1. Verify HMAC Signature and get the raw body
   try {
     rawBody = await verifyRequestAndGetBody(request); // Call the new function
@@ -103,32 +103,32 @@ export async function action({ request }: ActionFunctionArgs) {
     }
     console.log("domain:", payload.shopify_domain);
     console.log("error starts from here");
-  
+
     try {
-    // 3. Authenticate with Shopify Admin API to fetch additional data
+      // 3. Authenticate with Shopify Admin API to fetch additional data
       const session = await sessionStorage.loadSession(`offline_${payload.shopify_domain}`);
 
       if (!session || !session.accessToken) {
-      console.error(`[Flow Action] No active session found for shop ID: ${shopId}. App needs to be installed/re-authenticated.`);
-      // If no session, you cannot make API calls. Return an appropriate error.
-      throw json({ message: "Internal Server Error: No valid session found for shop. App may need re-installation." }, { status: 500 });
+        console.error(`[Flow Action] No active session found for shop ID: ${shopId}. App needs to be installed/re-authenticated.`);
+        // If no session, you cannot make API calls. Return an appropriate error.
+        throw json({ message: "Internal Server Error: No valid session found for shop. App may need re-installation." }, { status: 500 });
       }
-    
-    console.log("--- DEBUGGING GraphqlClient Session ---");
-    console.log("Session object details:");
-    console.log(`  Session ID: ${session.id}`);
-    console.log(`  Shop: ${session.shop}`); // Check the 'shop' property
-    console.log(`  Access Token (first 5 chars): ${session.accessToken?.substring(0, 5)}...`);
-    console.log(`  Is Online: ${session.isOnline}`);
-    console.log(`  Expires: ${session.expires}`);
-    console.log(`  Scope: ${session.scope}`);
-    console.log("--- END DEBUGGING GraphqlClient Session ---");
-    // 2. Create the Admin API client using the loaded session.
-    // This correctly authenticates your Admin API calls.
-    const client = new shopify_api.clients.Graphql({ session });
 
-    // Your GraphQL query (already updated in your message, copy it here)
-    const ORDER_AND_CUSTOMER_QUERY =`
+      console.log("--- DEBUGGING GraphqlClient Session ---");
+      console.log("Session object details:");
+      console.log(`  Session ID: ${session.id}`);
+      console.log(`  Shop: ${session.shop}`); // Check the 'shop' property
+      console.log(`  Access Token (first 5 chars): ${session.accessToken?.substring(0, 5)}...`);
+      console.log(`  Is Online: ${session.isOnline}`);
+      console.log(`  Expires: ${session.expires}`);
+      console.log(`  Scope: ${session.scope}`);
+      console.log("--- END DEBUGGING GraphqlClient Session ---");
+      // 2. Create the Admin API client using the loaded session.
+      // This correctly authenticates your Admin API calls.
+      const client = new shopify_api.clients.Graphql({ session });
+
+      // Your GraphQL query (already updated in your message, copy it here)
+      const ORDER_AND_CUSTOMER_QUERY = `
       query GetOrderAndCustomerDetails($orderId: ID!, $customerId: ID!) {
         order(id: $orderId) {
           id
@@ -224,314 +224,313 @@ export async function action({ request }: ActionFunctionArgs) {
       }
     `;
 
-    // Extract raw IDs from GIDs
-    const orderId = orderGid;
-    const customerId = customerGid;
+      // Extract raw IDs from GIDs
+      const orderId = orderGid;
+      const customerId = customerGid;
 
-    if (!orderGid || !customerGid) {
+      if (!orderGid || !customerGid) {
         console.error("Failed to extract ID from Order GID or Customer GID.");
         throw new Response("Bad Request: Invalid Order or Customer GID format", { status: 400 });
-    }
-
-    const response = await client.query<GetOrderAndCustomerDetailsResponse>({
-      data: {
-        query:     ORDER_AND_CUSTOMER_QUERY,
-        variables: { orderId, customerId }
-      }
-    });
-    if (!response.body) {
-      console.error("Shopify GraphQL response missing body");
-      throw new Response("Internal Server Error: no data from Shopify", { status: 500 });
-    }
-
-    const orderData = response.body.data.order;
-    const customerData = response.body.data.customer;
-    console.log("Response from Shopify GraphQL API:", JSON.stringify(response.body, null, 2));
-    console.log("Order Data:", JSON.stringify(orderData, null, 2));
-    console.log("Customer Data:", JSON.stringify(customerData, null, 2));
-    
-    if (!orderData || !customerData) {
-      console.error("Failed to fetch order or customer data:", response.body.errors);
-      throw new Response("Failed to fetch order or customer data from Shopify", { status: 500 });
-    }
-
-    // --- BillFree Payload Construction ---
-
-    const orderCreatedAt = new Date(orderData.createdAt);
-    const billDate = orderCreatedAt.toISOString().split('T')[0];
-    const billTime = orderCreatedAt.toTimeString().split(' ')[0];
-
-    const custName = `${customerData.firstName || ""} ${customerData.lastName || ""}`.trim();
-    let userPhone1 = customerData.defaultPhoneNumber?.phoneNumber || "";
-    if (userPhone1.startsWith('+91')) {
-      userPhone1 = userPhone1.replace(/^\+91\s*/, ''); // Removes the first 3 characters (+91)
-    }
-    const userPhone = userPhone1;
-    const userEmail = customerData.defaultEmailAddress?.emailAddress || "";
-    const custBday = customerData.custBdayMetafield?.value || "";
-    const custAnniv = customerData.custAnnivMetafield?.value || "";
-    const referrerPhone = customerData.referrerPhoneMetafield?.value || "";
-
-    const particulars = orderData.lineItems.edges.map((edge: any) => {
-      const item = edge.node;
-      const originalUnitPrice = parseFloat(item.originalUnitPriceSet?.shopMoney?.amount || "0");
-      const totalLineItemDiscount = parseFloat(item.totalDiscountSet?.shopMoney?.amount || "0");
-      const quantity = item.quantity;
-      const itemAmount = (originalUnitPrice * quantity - totalLineItemDiscount).toFixed(2);
-      const hsnCode = item.product?.metafield?.value || "";
-      const barcode = item.variant?.metafield?.value || "";
-      const gstRate = item.taxLines?.[0]?.rate ? (item.taxLines[0].rate * 100).toFixed(2) : "0.00";
-      const article = articleValue || "" || item.product?.productType;
-      return {
-        sku_id: item.sku || "",
-        description: item.name || "",
-        hsn: hsnCode,
-        gst: gstRate,
-        qty: quantity.toString(),
-        rate: originalUnitPrice.toFixed(2),
-        amount: itemAmount,
-        article: article,
-      };
-    });
-
-    const subtotal = orderData.lineItems.edges.reduce((sum: number, edge: any) => {
-      const item = edge.node;
-      const originalUnitPrice = parseFloat(item.originalUnitPriceSet?.shopMoney?.amount || "0");
-      return sum + (originalUnitPrice * item.quantity);
-    }, 0).toFixed(2);
-
-    const totalDiscountAmount = parseFloat(orderData.totalDiscountsSet?.shopMoney?.amount || "0").toFixed(2);
-
-    const additionalInfo = [
-      { text: "SUBTOTAL", value: subtotal },
-      { text: "Discount", value: totalDiscountAmount },
-      { text: "Total", value: parseFloat(orderData.totalPriceSet?.shopMoney?.amount || "0").toFixed(2) }
-    ];
-
-    const gstSummaryMap = new Map<string, { rate: number, taxable: number, cgst: number, sgst: number, igst: number, total: number }>();
-    orderData.lineItems.edges.forEach((edge: any) => {
-      const item = edge.node;
-      const itemSalesPrice = parseFloat(item.originalUnitPriceSet?.shopMoney?.amount || "0") * item.quantity - parseFloat(item.totalDiscountSet?.shopMoney?.amount || "0");
-      item.taxLines.forEach((taxLine: any) => {
-        const rateKey = taxLine.rate.toFixed(2);
-        const taxAmount = parseFloat(taxLine.priceSet?.shopMoney?.amount || "0");
-        let taxableAmountForTaxLine = 0;
-        if (taxLine.rate > 0) {
-          taxableAmountForTaxLine = taxAmount / taxLine.rate;
-        } else {
-          taxableAmountForTaxLine = itemSalesPrice;
-        }
-        if (!gstSummaryMap.has(rateKey)) {
-          gstSummaryMap.set(rateKey, { rate: parseFloat(rateKey) * 100, taxable: 0, cgst: 0, sgst: 0, igst: 0, total: 0 });
-        }
-        const currentSummary = gstSummaryMap.get(rateKey)!;
-        currentSummary.taxable += taxableAmountForTaxLine;
-        currentSummary.total += taxAmount;
-        const taxTitle = taxLine.title?.toUpperCase();
-        if (taxTitle === "CGST") {
-          currentSummary.cgst += taxAmount;
-        } else if (taxTitle === "SGST") {
-          currentSummary.sgst += taxAmount;
-        } else if (taxTitle === "IGST") {
-          currentSummary.igst += taxAmount;
-        }
-      });
-    });
-
-    const gstSummary = Array.from(gstSummaryMap.values()).map(summary => ({
-      gst: summary.rate.toFixed(2),
-      taxable: summary.taxable.toFixed(2),
-      cgst: summary.cgst.toFixed(2),
-      sgst: summary.sgst.toFixed(2),
-      igst: summary.igst.toFixed(2),
-      total: summary.total.toFixed(2)
-    }));
-
-    const totalTaxableSummary = gstSummary.reduce((sum, entry) => sum + parseFloat(entry.taxable), 0).toFixed(2);
-    const totalCGSTSummary = gstSummary.reduce((sum, entry) => sum + parseFloat(entry.cgst), 0).toFixed(2);
-    const totalSGSTSummary = gstSummary.reduce((sum, entry) => sum + parseFloat(entry.sgst), 0).toFixed(2);
-    const totalIGSTSummary = gstSummary.reduce((sum, entry) => sum + parseFloat(entry.igst), 0).toFixed(2);
-    const totalGSTTotalSummary = gstSummary.reduce((sum, entry) => sum + parseFloat(entry.total), 0).toFixed(2);
-
-    gstSummary.push({
-      gst: "",
-      taxable: totalTaxableSummary,
-      cgst: totalCGSTSummary,
-      sgst: totalSGSTSummary,
-      igst: totalIGSTSummary,
-      total: totalGSTTotalSummary,
-    });
-
-    const paymentInfo: { text: string; value: string }[] = [];
-    let cashPaidAmount = "0.00";
-
-    orderData.transactions.forEach((transaction: any) => {
-      let paymentModeText = transaction.gateway || "Other";
-      if (transaction.gateway === "bogus") {
-        paymentModeText = "Cash";
-      } else if (transaction.gateway === "shopify_payments") {
-        paymentModeText = "Credit Card";
       }
 
-      paymentInfo.push({
-        text: "Payment Mode",
-        value: paymentModeText,
+      const response = await client.query<GetOrderAndCustomerDetailsResponse>({
+        data: {
+          query: ORDER_AND_CUSTOMER_QUERY,
+          variables: { orderId, customerId }
+        }
       });
-      paymentInfo.push({
-        text: "Amount",
-        value: parseFloat(transaction.amountSet?.shopMoney?.amount || "0").toFixed(2),
-      });
-
-      if (transaction.kind === "SALE" && transaction.gateway === "bogus" && transaction.status === "SUCCESS") {
-        cashPaidAmount = parseFloat(transaction.amountSet?.shopMoney?.amount || "0").toFixed(2);
+      if (!response.body) {
+        console.error("Shopify GraphQL response missing body");
+        throw new Response("Internal Server Error: no data from Shopify", { status: 500 });
       }
-    });
-    
-    const shopDomain = payload.shopify_domain;
-if (!shopDomain) {
-  console.error("Shop domain not found in Flow payload.");
-  return json({ message: "Shop domain is missing from payload" }, { status: 400 });
-}
 
-const offlineSessionId = `offline_${shopDomain}`; // This correctly constructs the ID
+      const orderData = response.body.data.order;
+      const customerData = response.body.data.customer;
+      console.log("Response from Shopify GraphQL API:", JSON.stringify(response.body, null, 2));
+      console.log("Order Data:", JSON.stringify(orderData, null, 2));
+      console.log("Customer Data:", JSON.stringify(customerData, null, 2));
 
-const shopSession = await db.session.findUnique({
-  where: { id: offlineSessionId }, // This correctly looks up the offline session
-  select: { billFreeAuthToken: true, isBillFreeConfigured: true, fieldMappings: true },
-});
+      if (!orderData || !customerData) {
+        console.error("Failed to fetch order or customer data:", response.body.errors);
+        throw new Response("Failed to fetch order or customer data from Shopify", { status: 500 });
+      }
 
-if (!shopSession || !shopSession.isBillFreeConfigured || !shopSession.billFreeAuthToken) {
-  console.error(`BillFree not configured or token missing for shop: ${shopDomain} (Session ID: ${offlineSessionId})`);
-  return json({ message: "BillFree integration not configured for this shop." }, { status: 400 });
-}
+      // --- BillFree Payload Construction ---
+      const shopDomain = payload.shopify_domain;
+      if (!shopDomain) {
+        console.error("Shop domain not found in Flow payload.");
+        return json({ message: "Shop domain is missing from payload" }, { status: 400 });
+      }
 
-const billFreeAuthToken = shopSession.billFreeAuthToken;
-const fieldMappingsRaw = shopSession.fieldMappings;
+      const offlineSessionId = `offline_${shopDomain}`; // This correctly constructs the ID
+
+      const shopSession = await db.session.findUnique({
+        where: { id: offlineSessionId }, // This correctly looks up the offline session
+        select: { billFreeAuthToken: true, isBillFreeConfigured: true, fieldMappings: true },
+      });
+
+      if (!shopSession || !shopSession.isBillFreeConfigured || !shopSession.billFreeAuthToken) {
+        console.error(`BillFree not configured or token missing for shop: ${shopDomain} (Session ID: ${offlineSessionId})`);
+        return json({ message: "BillFree integration not configured for this shop." }, { status: 400 });
+      }
+
+      const billFreeAuthToken = shopSession.billFreeAuthToken;
+
+      const fieldMappingsRaw = shopSession.fieldMappings;
       let fieldMappings: Mappings = {}
 
-if (typeof fieldMappingsRaw === 'object' && fieldMappingsRaw !== null) {
+      if (typeof fieldMappingsRaw === 'object' && fieldMappingsRaw !== null) {
         fieldMappings = fieldMappingsRaw as Mappings;
       } else {
         console.warn(`[Flow Action] fieldMappings from DB is not an object or is null, found type: ${typeof fieldMappingsRaw}, value: ${fieldMappingsRaw}`);
       }
- // Dynamically get coupon_redeemed and article based on stored mappings
+      // Dynamically get coupon_redeemed and article based on stored mappings
       const couponRedeemedPath = fieldMappings.coupon_redeemed;
       const couponRedeemedValue = couponRedeemedPath ? getNestedValue(orderData, couponRedeemedPath) : "";
       console.log(`Mapped Coupon Redeemed Path: ${couponRedeemedPath}, Value: ${couponRedeemedValue}`);
 
-// --- Handle 'article' based on the new special mapping ---
+      // --- Handle 'article' based on the new special mapping ---
       const articlePath = fieldMappings.article;
-      let articleValue: string = "";
+      const articleValue: string = (() => {
+          if (articlePath === "AGGREGATE_LINE_ITEMS_PRODUCT_INFO" && orderData.lineItems?.edges) {
+              const productInfoList = orderData.lineItems.edges.map(edge => {
+                  const item = edge.node;
+                  // Prioritize productType, then product title, then variant title, then line item name
+                  return item.productType || item.product?.productType || item.product?.title || item.variant?.title || item.name;
+              }).filter(Boolean); // Filter out any empty/null/undefined strings
 
-      if (articlePath === "AGGREGATE_LINE_ITEMS_PRODUCT_INFO" && orderData.lineItems?.edges) {
-          const productInfoList = orderData.lineItems.edges.map(edge => {
-              const item = edge.node;
-              // Prioritize productType, then product title, then variant title, then line item name
-              return item.productType || item.product?.productType || item.product?.title || item.variant?.title || item.name;
-          }).filter(Boolean); // Filter out any empty/null/undefined strings
-
-          // Join unique product information, if any
-          articleValue = [...new Set(productInfoList)].join(', ');
-          console.log(`Aggregated Article Value: ${articleValue}`);
-      } else {
-          // For other specific paths, use getNestedValue as before
-          articleValue = articlePath ? getNestedValue(orderData, articlePath) : "";
-          console.log(`Mapped Article Path: ${articlePath}, Value: ${articleValue}`);
-      }
+              return [...new Set(productInfoList)].join(', '); // Join unique product information
+          } else {
+              // For other specific paths, use getNestedValue as before
+              return articlePath ? getNestedValue(orderData, articlePath) : "";
+          }
+      })();
+      console.log(`Mapped Article Path: ${articlePath}, Value: ${articleValue}`);
       // --- End 'article' handling ---
-      
-    const billFreePayload = {
-      auth_token: billFreeAuthToken || "", // Use directly from const
-      inv_no: orderData.name,
-      bill_type: "sale",
-      user_phone: userPhone,
-      user_email: userEmail,
-      dial_code: "91",
-      cust_name: custName,
-      cust_bday: custBday,
-      cust_anniv: custAnniv,
-      bill_date: billDate,
-      bill_time: billTime,
-      store_identifier: process.env.BILLFREE_STORE_IDENTIFIER || "", // From env var or fixed
-      is_printed: "n",
-      pts_redeemed: "",
-      coupon_redeemed: couponRedeemedValue || orderData.discountCodes?.[0] || "",
-      bill_amount: parseFloat(orderData.totalPriceSet?.shopMoney?.amount || "0").toFixed(2),
-      discount_amount: totalDiscountAmount,
-      referrer_phone: referrerPhone,
-      pts_balance: "",
-      change_return: "",
-      cash_paid: cashPaidAmount,
-      net_payable: parseFloat(orderData.totalPriceSet?.shopMoney?.amount || "0").toFixed(2),
-      round_off: parseFloat(orderData.totalCashRoundingAdjustment?.paymentSet?.shopMoney?.amount || "0").toFixed(2),
-      cashier_name: "",
-      remarks: orderData.note || "",
-      allow_points_accrual: "y",
-      particulars: particulars,
-      additional_info: additionalInfo,
-      gst_summary: gstSummary,
-      payment_info: paymentInfo,
-    };
 
-    // These logs are critical for debugging.
-    console.log("Generated BillFree Payload:", JSON.stringify(billFreePayload, null, 2));
-    console.log("DEBUG: About to make BillFree API call.");
-    console.log("DEBUG: BILLING_API_BASE_URL:", BILLING_API_BASE_URL); // Using BASE_URL
-    console.log("DEBUG: BILLING_API_AUTH_TOKEN (first 5 chars):", BILLING_API_AUTH_TOKEN?.substring(0, 5) + '...');
-    console.log("DEBUG: BillFree Payload (partial):", JSON.stringify(billFreePayload, null, 2).substring(0, 500) + '...');
+      const orderCreatedAt = new Date(orderData.createdAt);
+      const billDate = orderCreatedAt.toISOString().split('T')[0];
+      const billTime = orderCreatedAt.toTimeString().split(' ')[0];
 
-    // --- Make the actual API call to BillFree ---
-    // Added a more robust check for the base URL.
-    if (!BILLING_API_BASE_URL || !BILLING_API_AUTH_TOKEN) {
-      console.error("ERROR: BILLING_API_BASE_URL or BILLING_API_AUTH_TOKEN environment variable is not set!");
-      // Throw an error that your outer catch block can handle
-      throw new Error("Missing BillFree API configuration environment variables.");
-    }
+      const custName = `${customerData.firstName || ""} ${customerData.lastName || ""}`.trim();
+      let userPhone1 = customerData.defaultPhoneNumber?.phoneNumber || "";
+      if (userPhone1.startsWith('+91')) {
+        userPhone1 = userPhone1.replace(/^\+91\s*/, ''); // Removes the first 3 characters (+91)
+      }
+      const userPhone = userPhone1;
+      const userEmail = customerData.defaultEmailAddress?.emailAddress || "";
+      const custBday = customerData.custBdayMetafield?.value || "";
+      const custAnniv = customerData.custAnnivMetafield?.value || "";
+      const referrerPhone = customerData.referrerPhoneMetafield?.value || "";
 
-    const billFreeApiResponse = await fetch(BILLING_API_BASE_URL, { // Using BASE_URL
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        // No Authorization header, as per your confirmation.
-      },
-      body: JSON.stringify(billFreePayload),
-    });
+      const particulars = orderData.lineItems.edges.map((edge: any) => {
+        const item = edge.node;
+        const originalUnitPrice = parseFloat(item.originalUnitPriceSet?.shopMoney?.amount || "0");
+        const totalLineItemDiscount = parseFloat(item.totalDiscountSet?.shopMoney?.amount || "0");
+        const quantity = item.quantity;
+        const itemAmount = (originalUnitPrice * quantity - totalLineItemDiscount).toFixed(2);
+        const hsnCode = item.product?.metafield?.value || "";
+        const barcode = item.variant?.metafield?.value || "";
+        const gstRate = item.taxLines?.[0]?.rate ? (item.taxLines[0].rate * 100).toFixed(2) : "0.00";
+        const article = articleValue || "" || item.product?.productType;
+        return {
+          sku_id: item.sku || "",
+          description: item.name || "",
+          hsn: hsnCode,
+          gst: gstRate,
+          qty: quantity.toString(),
+          rate: originalUnitPrice.toFixed(2),
+          amount: itemAmount,
+          article: article,
+        };
+      });
 
-    const billFreeResponseData = await billFreeApiResponse.json();
+      const subtotal = orderData.lineItems.edges.reduce((sum: number, edge: any) => {
+        const item = edge.node;
+        const originalUnitPrice = parseFloat(item.originalUnitPriceSet?.shopMoney?.amount || "0");
+        return sum + (originalUnitPrice * item.quantity);
+      }, 0).toFixed(2);
 
-    if (!billFreeApiResponse.ok) {
-      console.error("BillFree API Error:", billFreeApiResponse.status, billFreeResponseData);
-      throw new Response(
-        `BillFree API Integration Failed (Status: ${billFreeApiResponse.status}): ${JSON.stringify(billFreeResponseData)}`,
-        { status: billFreeApiResponse.status }
-      );
-    }
+      const totalDiscountAmount = parseFloat(orderData.totalDiscountsSet?.shopMoney?.amount || "0").toFixed(2);
 
-    console.log("BillFree API Success:", billFreeResponseData);
+      const additionalInfo = [
+        { text: "SUBTOTAL", value: subtotal },
+        { text: "Discount", value: totalDiscountAmount },
+        { text: "Total", value: parseFloat(orderData.totalPriceSet?.shopMoney?.amount || "0").toFixed(2) }
+      ];
 
-    return json({
-      message: "Flow Action executed successfully and BillFree payload sent.",
-      billFreeResponse: billFreeResponseData,
-      payloadSent: billFreePayload
-    });
+      const gstSummaryMap = new Map<string, { rate: number, taxable: number, cgst: number, sgst: number, igst: number, total: number }>();
+      orderData.lineItems.edges.forEach((edge: any) => {
+        const item = edge.node;
+        const itemSalesPrice = parseFloat(item.originalUnitPriceSet?.shopMoney?.amount || "0") * item.quantity - parseFloat(item.totalDiscountSet?.shopMoney?.amount || "0");
+        item.taxLines.forEach((taxLine: any) => {
+          const rateKey = taxLine.rate.toFixed(2);
+          const taxAmount = parseFloat(taxLine.priceSet?.shopMoney?.amount || "0");
+          let taxableAmountForTaxLine = 0;
+          if (taxLine.rate > 0) {
+            taxableAmountForTaxLine = taxAmount / taxLine.rate;
+          } else {
+            taxableAmountForTaxLine = itemSalesPrice;
+          }
+          if (!gstSummaryMap.has(rateKey)) {
+            gstSummaryMap.set(rateKey, { rate: parseFloat(rateKey) * 100, taxable: 0, cgst: 0, sgst: 0, igst: 0, total: 0 });
+          }
+          const currentSummary = gstSummaryMap.get(rateKey)!;
+          currentSummary.taxable += taxableAmountForTaxLine;
+          currentSummary.total += taxAmount;
+          const taxTitle = taxLine.title?.toUpperCase();
+          if (taxTitle === "CGST") {
+            currentSummary.cgst += taxAmount;
+          } else if (taxTitle === "SGST") {
+            currentSummary.sgst += taxAmount;
+          } else if (taxTitle === "IGST") {
+            currentSummary.igst += taxAmount;
+          }
+        });
+      });
+
+      const gstSummary = Array.from(gstSummaryMap.values()).map(summary => ({
+        gst: summary.rate.toFixed(2),
+        taxable: summary.taxable.toFixed(2),
+        cgst: summary.cgst.toFixed(2),
+        sgst: summary.sgst.toFixed(2),
+        igst: summary.igst.toFixed(2),
+        total: summary.total.toFixed(2)
+      }));
+
+      const totalTaxableSummary = gstSummary.reduce((sum, entry) => sum + parseFloat(entry.taxable), 0).toFixed(2);
+      const totalCGSTSummary = gstSummary.reduce((sum, entry) => sum + parseFloat(entry.cgst), 0).toFixed(2);
+      const totalSGSTSummary = gstSummary.reduce((sum, entry) => sum + parseFloat(entry.sgst), 0).toFixed(2);
+      const totalIGSTSummary = gstSummary.reduce((sum, entry) => sum + parseFloat(entry.igst), 0).toFixed(2);
+      const totalGSTTotalSummary = gstSummary.reduce((sum, entry) => sum + parseFloat(entry.total), 0).toFixed(2);
+
+      gstSummary.push({
+        gst: "",
+        taxable: totalTaxableSummary,
+        cgst: totalCGSTSummary,
+        sgst: totalSGSTSummary,
+        igst: totalIGSTSummary,
+        total: totalGSTTotalSummary,
+      });
+
+      const paymentInfo: { text: string; value: string }[] = [];
+      let cashPaidAmount = "0.00";
+
+      orderData.transactions.forEach((transaction: any) => {
+        let paymentModeText = transaction.gateway || "Other";
+        if (transaction.gateway === "bogus") {
+          paymentModeText = "Cash";
+        } else if (transaction.gateway === "shopify_payments") {
+          paymentModeText = "Credit Card";
+        }
+
+        paymentInfo.push({
+          text: "Payment Mode",
+          value: paymentModeText,
+        });
+        paymentInfo.push({
+          text: "Amount",
+          value: parseFloat(transaction.amountSet?.shopMoney?.amount || "0").toFixed(2),
+        });
+
+        if (transaction.kind === "SALE" && transaction.gateway === "bogus" && transaction.status === "SUCCESS") {
+          cashPaidAmount = parseFloat(transaction.amountSet?.shopMoney?.amount || "0").toFixed(2);
+        }
+      });
+
+
+      const billFreePayload = {
+        auth_token: billFreeAuthToken || "", // Use directly from const
+        inv_no: orderData.name,
+        bill_type: "sale",
+        user_phone: userPhone,
+        user_email: userEmail,
+        dial_code: "91",
+        cust_name: custName,
+        cust_bday: custBday,
+        cust_anniv: custAnniv,
+        bill_date: billDate,
+        bill_time: billTime,
+        store_identifier: process.env.BILLFREE_STORE_IDENTIFIER || "", // From env var or fixed
+        is_printed: "n",
+        pts_redeemed: "",
+        coupon_redeemed: couponRedeemedValue || orderData.discountCodes?.[0] || "",
+        bill_amount: parseFloat(orderData.totalPriceSet?.shopMoney?.amount || "0").toFixed(2),
+        discount_amount: totalDiscountAmount,
+        referrer_phone: referrerPhone,
+        pts_balance: "",
+        change_return: "",
+        cash_paid: cashPaidAmount,
+        net_payable: parseFloat(orderData.totalPriceSet?.shopMoney?.amount || "0").toFixed(2),
+        round_off: parseFloat(orderData.totalCashRoundingAdjustment?.paymentSet?.shopMoney?.amount || "0").toFixed(2),
+        cashier_name: "",
+        remarks: orderData.note || "",
+        allow_points_accrual: "y",
+        particulars: particulars,
+        additional_info: additionalInfo,
+        gst_summary: gstSummary,
+        payment_info: paymentInfo,
+      };
+
+      // These logs are critical for debugging.
+      console.log("Generated BillFree Payload:", JSON.stringify(billFreePayload, null, 2));
+      console.log("DEBUG: About to make BillFree API call.");
+      console.log("DEBUG: BILLING_API_BASE_URL:", BILLING_API_BASE_URL); // Using BASE_URL
+      console.log("DEBUG: BILLING_API_AUTH_TOKEN (first 5 chars):", BILLING_API_AUTH_TOKEN?.substring(0, 5) + '...');
+      console.log("DEBUG: BillFree Payload (partial):", JSON.stringify(billFreePayload, null, 2).substring(0, 500) + '...');
+
+      // --- Make the actual API call to BillFree ---
+      // Added a more robust check for the base URL.
+      if (!BILLING_API_BASE_URL || !BILLING_API_AUTH_TOKEN) {
+        console.error("ERROR: BILLING_API_BASE_URL or BILLING_API_AUTH_TOKEN environment variable is not set!");
+        // Throw an error that your outer catch block can handle
+        throw new Error("Missing BillFree API configuration environment variables.");
+      }
+
+      const billFreeApiResponse = await fetch(BILLING_API_BASE_URL, { // Using BASE_URL
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          // No Authorization header, as per your confirmation.
+        },
+        body: JSON.stringify(billFreePayload),
+      });
+
+      const billFreeResponseData = await billFreeApiResponse.json();
+
+      if (!billFreeApiResponse.ok) {
+        console.error("BillFree API Error:", billFreeApiResponse.status, billFreeResponseData);
+        throw new Response(
+          `BillFree API Integration Failed (Status: ${billFreeApiResponse.status}): ${JSON.stringify(billFreeResponseData)}`,
+          { status: billFreeApiResponse.status }
+        );
+      }
+
+      console.log("BillFree API Success:", billFreeResponseData);
+
+      return json({
+        message: "Flow Action executed successfully and BillFree payload sent.",
+        billFreeResponse: billFreeResponseData,
+        payloadSent: billFreePayload
+      });
 
     } catch (error) {
-    console.error("Error during Flow Action execution:", error);
-    // Ensure this throws a proper HTTP response that Shopify Flow can understand.
-    // If it's a generic Error, return 500. If it's a Response object, re-throw it.
-    if (error instanceof Response) {
-      throw error; // Re-throw the Response object
-    }
-    throw new Response(`Internal Server Error during BillFree API call: ${error instanceof Error ? error.message : String(error)}`, { status: 500 });
+      console.error("Error during Flow Action execution:", error);
+      // Ensure this throws a proper HTTP response that Shopify Flow can understand.
+      // If it's a generic Error, return 500. If it's a Response object, re-throw it.
+      if (error instanceof Response) {
+        throw error; // Re-throw the Response object
+      }
+      throw new Response(`Internal Server Error during BillFree API call: ${error instanceof Error ? error.message : String(error)}`, { status: 500 });
     }
   } catch (error) {
-  if (error instanceof Response) {
-    // read and log the body of the Response so you know the real message
-    const text = await error.clone().text();
-    console.error("Flow Action threw Response:", text);
-    throw error; // re-throw so Remix will still send the correct 500
+    if (error instanceof Response) {
+      // read and log the body of the Response so you know the real message
+      const text = await error.clone().text();
+      console.error("Flow Action threw Response:", text);
+      throw error; // re-throw so Remix will still send the correct 500
+    }
+    console.error("Unexpected error:", error);
+    return json({ message: String(error) }, { status: 500 });
   }
-  console.error("Unexpected error:", error);
-  return json({ message: String(error) }, { status: 500 });
-}
 }
