@@ -3,6 +3,7 @@
 import type { LoaderFunctionArgs } from "@remix-run/node";
 import { json, } from "@remix-run/node";
 import { authenticate, shopify_api } from "../shopify.server";
+import db from "../db.server"; // Adjust the import path as per your project structure
 
 // Define interfaces for your Billfree API response
 interface BillfreePointsResponse {
@@ -57,6 +58,31 @@ export async function loader({ request }: LoaderFunctionArgs) {
   }
 
   let customerMobileNumber: string | undefined;
+  let auth_token: string;
+  try {
+    const offlineSessionId = `offline_${session.shop}`;
+    const shopSession = await db.session.findUnique({
+        where: { id: offlineSessionId }, // This correctly looks up the offline session
+        select: { billFreeAuthToken: true, isBillFreeConfigured: true, fieldMappings: true },
+      });
+
+      if (!shopSession || !shopSession.isBillFreeConfigured || !shopSession.billFreeAuthToken) {
+        console.error(`BillFree not configured or token missing for shop: ${session.shop} (Session ID: ${offlineSessionId})`);
+        return json({ message: "BillFree integration not configured for this shop." }, { status: 400 });
+      }
+
+      const billFreeAuthToken = shopSession.billFreeAuthToken;
+
+      auth_token = billFreeAuthToken;
+    if (!auth_token) {
+        console.warn(`[Redeem Proxy] Using temporary/hardcoded auth token for ${session.shop}. Please configure database lookup.`);
+        // In production, you'd likely throw an error here:
+        // throw new Error("Billfree Auth Token not securely retrieved from database.");
+    }
+  } catch (error) {
+    console.error("Error retrieving Billfree auth token from database:", error);
+    return json({ error: "Failed to retrieve Billfree auth token from database." }, { status: 500 });
+  }
 
   try {
     // Step 1: Fetch customer phone number from Shopify Admin API
@@ -131,7 +157,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
       },
       body: JSON.stringify(
         {
-          "auth_token": `${process.env.BILLFREE_API_KEY}`,
+          "auth_token": auth_token, // Use the retrieved token
           "user_phone": `${customerMobileNumber}`,
           "dial_code": "91"
         }

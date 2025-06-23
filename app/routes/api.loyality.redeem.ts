@@ -3,6 +3,7 @@
 import type { ActionFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
 import { authenticate } from "../shopify.server";
+import db from "../db.server";
 // Assuming you have a database utility/client set up for auth_token lookup
 // import { db } from "~/db.server"; // Adjust path as per your project
 
@@ -56,17 +57,21 @@ export async function action({ request }: ActionFunctionArgs) {
 
   let auth_token: string;
   try {
-    // --- IMPORTANT: Fetch AUTH_TOKEN from your database using session.shop ---
-    // This is a placeholder. Replace with your actual database query logic.
-    // Example:
-    // const shopSettings = await db.shopSettings.findUnique({ where: { shopDomain: session.shop } });
-    // if (!shopSettings || !shopSettings.billfreeAuthToken) {
-    //   throw new Error(`Billfree Auth Token not found for shop ${session.shop} in database.`);
-    // }
-    // auth_token = shopSettings.billfreeAuthToken;
+    const offlineSessionId = `offline_${session.shop}`;
+    const shopSession = await db.session.findUnique({
+        where: { id: offlineSessionId }, // This correctly looks up the offline session
+        select: { billFreeAuthToken: true, isBillFreeConfigured: true, fieldMappings: true },
+      });
 
-    auth_token = process.env.BILLFREE_AUTH_TOKEN_FROM_DB || "DEMO_HARDCODED_AUTH_TOKEN_FROM_DB";
-    if (!auth_token || auth_token === "DEMO_HARDCODED_AUTH_TOKEN_FROM_DB") {
+      if (!shopSession || !shopSession.isBillFreeConfigured || !shopSession.billFreeAuthToken) {
+        console.error(`BillFree not configured or token missing for shop: ${session.shop} (Session ID: ${offlineSessionId})`);
+        return json({ message: "BillFree integration not configured for this shop." }, { status: 400 });
+      }
+
+      const billFreeAuthToken = shopSession.billFreeAuthToken;
+
+      auth_token = billFreeAuthToken;
+    if (!auth_token) {
         console.warn(`[Redeem Proxy] Using temporary/hardcoded auth token for ${session.shop}. Please configure database lookup.`);
         // In production, you'd likely throw an error here:
         // throw new Error("Billfree Auth Token not securely retrieved from database.");
@@ -78,7 +83,7 @@ export async function action({ request }: ActionFunctionArgs) {
   }
 
   const billfreePayload: BillfreeRedeemRequest = {
-    auth_token: auth_token,
+    auth_token: auth_token, // Use the retrieved token or a hardcoded one for testing
     user_phone: user_phone,
     dial_code: "91", // Assuming this is fixed for India
     inv_no: inv_no,
