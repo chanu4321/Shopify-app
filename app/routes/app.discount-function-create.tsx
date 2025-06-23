@@ -30,8 +30,7 @@ export async function loader({ request }: LoaderFunctionArgs) { // Type 'request
 
 export default function DiscountFunctionCreatePage() {
   const { message, functionId } = useLoaderData<LoaderData>();
-  const globalApp = useAppBridge(); // Get the App Bridge instance (it can be null/undefined)
-   const app = globalApp as unknown as ClientApplication<AppBridgeState>;
+  const app = useAppBridge();
   const handleConfirmAndGoToDiscounts = () => {
     if (app) { // <--- CRUCIAL CHECK: Ensure 'app' is not null/undefined
       Redirect.create(app).dispatch(
