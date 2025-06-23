@@ -1,49 +1,51 @@
+// app/root.tsx
+import type { MetaFunction, LinksFunction } from "@remix-run/node";
 import { json } from "@remix-run/node";
-import { Outlet, useLoaderData } from "@remix-run/react";
-import { AppProvider } from "@shopify/shopify-app-remix/react";
-import { AppProvider as PolarisProvider } from "@shopify/polaris"; // Ensure this is imported!
-import { LoaderFunctionArgs } from "@remix-run/node";
+import {
+  Meta,
+  Links,
+  Scripts,
+  ScrollRestoration,
+  LiveReload,
+  Outlet,
+  useLoaderData,
+} from "@remix-run/react";
+import { AppProvider as ShopifyAppProvider } from "@shopify/shopify-app-remix/react";
+import { AppProvider as PolarisProvider } from "@shopify/polaris";
 import enTranslations from "@shopify/polaris/locales/en.json";
-import '@shopify/polaris/build/esm/styles.css'; // Import Polaris translations
-// import other styles if you have them, e.g., import appStyles from "./app.css";
+import polarisStylesUrl from "@shopify/polaris/build/esm/styles.css?url";
 
-// This is the loader for your root route, providing necessary data to AppProvider
-export async function loader({ request }: LoaderFunctionArgs) {
+export const links: LinksFunction = () => [
+  { rel: "stylesheet", href: polarisStylesUrl },
+];
+
+export async function loader({ request }: { request: Request }) {
   const url = new URL(request.url);
-  const host = url.searchParams.get("host"); // Shopify passes 'host' in the URL
-  const shop = url.searchParams.get("shop"); // Shopify passes 'shop' in the URL
-  const shopifyApiKey = process.env.SHOPIFY_API_KEY; // Make sure this env var is set!
-
-  // Basic validation (you might have more robust auth/session handling)
-  if (!host || !shop || !shopifyApiKey) {
-    throw new Response("Missing required parameters for App Bridge setup (host, shop, or API key).", { status: 400 });
-  }
-
-  // Return the data for AppProvider
-  return json({
-    shopifyApiKey,
-    shop,
-    host,
-  });
-}
-
-// Ensure your links function includes Polaris styles if you're using them
-export function links() {
-  return [{ rel: "stylesheet", href : "@shopify/polaris/build/esm/styles.css" }]; // Polaris styles
-  // Add your app's custom styles here too, e.g., { rel: "stylesheet", href: appStyles }
+  const host = url.searchParams.get("host")!;
+  const shop = url.searchParams.get("shop")!;
+  const shopifyApiKey = process.env.SHOPIFY_API_KEY!;
+  return json({ host, shop, shopifyApiKey });
 }
 
 export default function App() {
-  // Use useLoaderData to get the data provided by the loader
-  const { shopifyApiKey, shop, host } = useLoaderData<typeof loader>(); // Type it with typeof loader
+  const { host, shop, shopifyApiKey } = useLoaderData<typeof loader>();
 
   return (
-    // Wrap your entire app content with AppProvider and PolarisProvider
-    <AppProvider apiKey={shopifyApiKey}>
-      <PolarisProvider i18n={enTranslations}>
-        {/* The <Outlet /> component renders the content of nested routes */}
-        <Outlet />
-      </PolarisProvider>
-    </AppProvider>
-  );
+    <html lang="en">
+      <head>
+        <Meta />
+        <Links />
+      </head>
+      <body>
+        <ShopifyAppProvider apiKey={shopifyApiKey}>
+          <PolarisProvider i18n={enTranslations}>
+            <Outlet />
+          </PolarisProvider>
+        </ShopifyAppProvider>
+        <ScrollRestoration />
+        <Scripts />
+        <LiveReload />
+      </body>
+    </html>
+);
 }
