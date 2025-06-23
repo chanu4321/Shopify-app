@@ -13,14 +13,12 @@ import {
 import { AppProvider } from "@shopify/shopify-app-remix/react";
 import enTranslations from "@shopify/polaris/locales/en.json";
 import polarisStylesUrl from "@shopify/polaris/build/esm/styles.css?url";
-import shopify from "./shopify.server";
 
 export const links: LinksFunction = () => [
   { rel: "stylesheet", href: polarisStylesUrl },
 ];
 
 export async function loader({ request }: { request: Request }) {
-  await shopify.authenticate.admin(request);
   const url = new URL(request.url);
   const host = url.searchParams.get("host")!;
   const shop = url.searchParams.get("shop")!;
@@ -38,7 +36,7 @@ export default function App() {
         <Links />
       </head>
       <body>
-        <AppProvider apiKey={shopifyApiKey} i18n={enTranslations} isEmbeddedApp={true}>
+        <AppProvider apiKey={shopifyApiKey} i18n={enTranslations} isEmbeddedApp = {true}>
           <Outlet />
         </AppProvider>
         <ScrollRestoration />

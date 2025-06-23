@@ -5,10 +5,8 @@ import { json } from "@remix-run/node";
 // Import 'type' for typing the loader arguments
 import type { LoaderFunctionArgs } from "@remix-run/node";
 import { useLoaderData } from "@remix-run/react";
-import { useAppBridge } from "@shopify/app-bridge-react";
 import { Redirect } from "@shopify/app-bridge/actions";
-import { ClientApplication } from "@shopify/app-bridge";
-import  {AppBridgeState} from "@shopify/app-bridge";
+import createApp from '@shopify/app-bridge';
 
 // 1. Define an interface for the shape of the data returned by your loader
 interface LoaderData {
@@ -27,10 +25,17 @@ export async function loader({ request }: LoaderFunctionArgs) { // Type 'request
     functionId: functionId,
   });
 }
+const config = {
+    // The client ID provided for your application in the Partner Dashboard.
+    apiKey: `${process.env.SHOPIFY_API_KEY}`,
+    // The host of the specific shop that's embedding your app. This value is provided by Shopify as a URL query parameter that's appended to your application URL when your app is loaded inside the Shopify admin.
+    host: new URLSearchParams(location.search).get("host") || "",
+    forceRedirect: true
+};
 
 export default function DiscountFunctionCreatePage() {
   const { message, functionId } = useLoaderData<LoaderData>();
-  const app = useAppBridge();
+  const app = createApp(config);
   const handleConfirmAndGoToDiscounts = () => {
     if (app) { // <--- CRUCIAL CHECK: Ensure 'app' is not null/undefined
       Redirect.create(app).dispatch(
