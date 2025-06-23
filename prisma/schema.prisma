@@ -10,29 +10,30 @@ generator client {
 // See https://www.prisma.io/docs/orm/reference/prisma-schema-reference#string for more information
 datasource db {
   provider = "postgresql"
-  url = "postgresql://shopify-db_owner:npg_c4ATV3esftJg@ep-lingering-frost-a5lu1jgl-pooler.us-east-2.aws.neon.tech/shopify-db?sslmode=require"
+  url      = env("DATABASE_URL")
 }
 
 model Session {
-  id            String    @id
-  shop          String
-  state         String
-  isOnline      Boolean   @default(false)
-  scope         String?
-  expires       DateTime?
-  accessToken   String
-  userId        BigInt?
-  firstName     String?
-  lastName      String?
-  email         String?
-  accountOwner  Boolean   @default(false)
-  locale        String?
-  collaborator  Boolean?  @default(false)
-  emailVerified Boolean?  @default(false)
-  billFreeAuthToken   String?
-  isBillFreeConfigured Boolean @default(false)
+  id                        String    @id
+  shop                      String
+  state                     String
+  isOnline                  Boolean   @default(false)
+  scope                     String?
+  expires                   DateTime?
+  accessToken               String
+  userId                    BigInt?
+  firstName                 String?
+  lastName                  String?
+  email                     String?
+  accountOwner              Boolean   @default(false)
+  locale                    String?
+  collaborator              Boolean?  @default(false)
+  emailVerified             Boolean?  @default(false)
+  billFreeAuthToken         String?
+  isBillFreeConfigured      Boolean   @default(false)
   billFreeWorkflowId        String?
   isBillFreeWorkflowEnabled Boolean   @default(false)
-  fieldMappings     Json?
+  fieldMappings             Json?
+
   @@index([shop])
 }
