@@ -3,7 +3,8 @@ import { Outlet, useLoaderData } from "@remix-run/react";
 import { AppProvider } from "@shopify/shopify-app-remix/react";
 import { AppProvider as PolarisProvider } from "@shopify/polaris"; // Ensure this is imported!
 import { LoaderFunctionArgs } from "@remix-run/node";
-import enTranslations from "@shopify/polaris/locales/en.json"; // Import Polaris translations
+import enTranslations from "@shopify/polaris/locales/en.json";
+import '@shopify/polaris/build/esm/styles.css'; // Import Polaris translations
 // import other styles if you have them, e.g., import appStyles from "./app.css";
 
 // This is the loader for your root route, providing necessary data to AppProvider
@@ -28,7 +29,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
 // Ensure your links function includes Polaris styles if you're using them
 export function links() {
-  return [{ rel: "stylesheet" }];
+  return [{ rel: "stylesheet", href : "@shopify/polaris/build/esm/styles.css" }]; // Polaris styles
   // Add your app's custom styles here too, e.g., { rel: "stylesheet", href: appStyles }
 }
 
