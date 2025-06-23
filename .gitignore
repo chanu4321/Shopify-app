@@ -15,7 +15,6 @@ database.sqlite
 .env.*
 
 .vscode
-
 /extensions/*/dist
 
 # Ignore shopify files created during app dev
