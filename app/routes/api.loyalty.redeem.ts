@@ -2,7 +2,6 @@
 
 import type { ActionFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
-import { authenticate } from "../shopify.server";
 import db from "../db.server";
 // Assuming you have a database utility/client set up for auth_token lookup
 // import { db } from "~/db.server"; // Adjust path as per your project
@@ -29,6 +28,11 @@ interface BillfreeRedeemResponse {
   error: boolean; // Assuming Billfree might return an 'error' flag
   response: string; // Additional message from Billfree (e.g., "Success")
   discount_value_rupees: number;
+  maxRedeemablePts: number; // Based on your verify-otp, redeem API might return this
+  maxRedeemableAmt: number; // Use this as the main discount value
+  net_payable: number;
+  otpFlag: string; // "y" or "n"
+  scheme_message: string;
   // Add other properties if your API #2 returns them.
 }
 
@@ -40,12 +44,15 @@ export async function action({ request }: ActionFunctionArgs) {
   if (request.method !== "POST") {
     return json({ error: "Method Not Allowed" }, { status: 405 });
   }
+  const url = new URL(request.url);
+  const shopDomain = url.searchParams.get("shop_domain");
 
   // Authenticate that the request is coming from your Shopify Function/App.
-  const { session } = await authenticate.admin(request);
-  if (!session || !session.shop) {
-    console.error("[Redeem Proxy] Authentication failed for incoming request.");
-    return json({ error: "Unauthorized access to redemption proxy." }, { status: 401 });
+  
+  if (!shopDomain) {
+    console.error("[Redeem Proxy] Shop domain missing in query parameters. Cannot process request.");
+    // Return an error message to the Shopify Function if shop_domain is not provided
+    return json({ error: "Shop domain is required.", discount_value_rupees: 0 }, { status: 400 });
   }
 
   const payload: RedeemRequestFromFunction = await request.json();
@@ -56,29 +63,32 @@ export async function action({ request }: ActionFunctionArgs) {
   }
 
   let auth_token: string;
+  let offlineAccessToken: string;
   try {
-    const offlineSessionId = `offline_${session.shop}`;
+    const offlineSessionId = `offline_${shopDomain}`;
     const shopSession = await db.session.findUnique({
-        where: { id: offlineSessionId }, // This correctly looks up the offline session
-        select: { billFreeAuthToken: true, isBillFreeConfigured: true, fieldMappings: true },
+        where: { id: offlineSessionId },
+        select: { billFreeAuthToken: true, isBillFreeConfigured: true, accessToken: true }, // Select accessToken too
       });
 
-      if (!shopSession || !shopSession.isBillFreeConfigured || !shopSession.billFreeAuthToken) {
-        console.error(`BillFree not configured or token missing for shop: ${session.shop} (Session ID: ${offlineSessionId})`);
-        return json({ message: "BillFree integration not configured for this shop." }, { status: 400 });
-      }
-
-      const billFreeAuthToken = shopSession.billFreeAuthToken;
-
-      auth_token = billFreeAuthToken;
-    if (!auth_token) {
-        console.warn(`[Redeem Proxy] Using temporary/hardcoded auth token for ${session.shop}. Please configure database lookup.`);
-        // In production, you'd likely throw an error here:
-        // throw new Error("Billfree Auth Token not securely retrieved from database.");
+    if (!shopSession || !shopSession.isBillFreeConfigured || !shopSession.billFreeAuthToken || !shopSession.accessToken) {
+        console.error(`BillFree not configured, tokens missing, or access token missing for shop: ${shopDomain}`);
+        return json({ message: "BillFree integration not fully configured for this shop." }, { status: 400 });
     }
 
+    auth_token = shopSession.billFreeAuthToken;
+    offlineAccessToken = shopSession.accessToken; // Use this for Shopify Admin API calls
+
+
+  if (!offlineAccessToken || !shopDomain) {
+    console.error(`[Loyalty Points Loader] No active session found. App needs to be installed/re-authenticated.`);
+    return json({ message: "Authentication required. App may need re-installation." }, { status: 401 });
+  }
+  
+
+
   } catch (dbError: any) {
-    console.error(`Database error fetching auth token for shop ${session.shop}:`, dbError);
+    console.error(`Database error fetching auth token for shop ${shopDomain}:`, dbError);
     return json({ error: `Failed to retrieve authentication token: ${dbError.message}` }, { status: 500 });
   }
 
@@ -117,10 +127,18 @@ export async function action({ request }: ActionFunctionArgs) {
     }
 
     // Success: Return the discount value to the Shopify Function
-    return json(data);
+    return json({
+      error: data.error, // Pass Billfree's error flag if applicable
+      response: data.response,
+      discount_value_rupees: data.maxRedeemableAmt || 0, // THIS IS THE KEY VALUE FOR THE FUNCTION
+      maxRedeemablePts: data.maxRedeemablePts,
+      maxRedeemableAmt: data.maxRedeemableAmt,
+      net_payable: data.net_payable,
+      otpFlag: data.otpFlag,
+      scheme_message: data.scheme_message
+    });
   } catch (error: any) {
-    console.error("Error applying loyalty redemption via Billfree proxy:", error);
-    // Return a generic error if something unexpected happened during the proxy call
+    console.error(`Error applying loyalty redemption via Billfree proxy for shop ${shopDomain}:`, error);
     return json({ error: `Failed to apply loyalty redemption: ${error.message}`, discount_value_rupees: 0 }, { status: 500 });
   }
 }

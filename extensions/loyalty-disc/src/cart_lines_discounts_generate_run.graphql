@@ -1,11 +1,9 @@
-# extensions/loyalty-discount-function/src/run.graphql
-
 query CartInput {
   cart {
     buyerIdentity {
       customer {
         id
-        hasAnyTag # Needed by your example logic
+        hasAnyTag
       }
     }
     cost {
@@ -16,8 +14,8 @@ query CartInput {
     }
     lines {
       id
-      quantity # Keep quantity, can be useful for general context
-      cost { # Keep line cost for potential future debugging or specific line calculations
+      quantity
+      cost {
         subtotalAmount {
           amount
           currencyCode
@@ -25,12 +23,16 @@ query CartInput {
       }
     }
   }
-  discount { # Still needed for your proxy_base_url metafield
-    metafield(namespace: "loyalty_app", key: "proxy_base_url") {
+  discount {
+    url: metafield(namespace: "loyalty_app", key: "proxy_base_url") {
+      value
+    }
+    # ADD THIS NEW METAFIELD QUERY TO FETCH THE SHOP DOMAIN
+    shop: metafield(namespace: "loyalty_app", key: "shop_domain_key") { # Choose a distinct key, e.g., "shop_domain_key"
       value
     }
   }
-  discount { # Needed for checking discountClasses as per your provided snippet
+  discount {
     discountClasses
   }
 }

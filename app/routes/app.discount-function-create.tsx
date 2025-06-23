@@ -1,4 +1,4 @@
-// app/routes/app.discount-function-create.jsx (or .tsx)
+// app/routes/app.discount-function-create.tsx
 
 import { Page, Layout, Card, Text, Button, Link } from "@shopify/polaris";
 import { json } from "@remix-run/node";

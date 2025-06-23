@@ -2,7 +2,7 @@
 
 import type { LoaderFunctionArgs } from "@remix-run/node";
 import { json, } from "@remix-run/node";
-import { authenticate, shopify_api } from "../shopify.server";
+import { shopify_api } from "../shopify.server";
 import db from "../db.server"; // Adjust the import path as per your project structure
 
 // Define interfaces for your Billfree API response
@@ -38,14 +38,9 @@ interface ProxyPointsResponse {
 }
 
 export async function loader({ request }: LoaderFunctionArgs) {
-  const { session } = await authenticate.admin(request);
-  if (!session || !session.accessToken || !session.shop) {
-    console.error(`[Loyalty Points Loader] No active session found. App needs to be installed/re-authenticated.`);
-    return json({ message: "Authentication required. App may need re-installation." }, { status: 401 });
-  }
-
   const url = new URL(request.url);
   const customerGid = url.searchParams.get("customer_gid");
+  const shopDomain = url.searchParams.get("shop_domain");
 
   if (!customerGid) {
     return json({ error: "Customer GID missing in request parameters." }, { status: 400 });
@@ -59,26 +54,28 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
   let customerMobileNumber: string | undefined;
   let auth_token: string;
+  let offlineAccessToken: string; // For Shopify Admin API calls
   try {
-    const offlineSessionId = `offline_${session.shop}`;
+    const offlineSessionId = `offline_${shopDomain}`;
     const shopSession = await db.session.findUnique({
-        where: { id: offlineSessionId }, // This correctly looks up the offline session
-        select: { billFreeAuthToken: true, isBillFreeConfigured: true, fieldMappings: true },
+        where: { id: offlineSessionId },
+        select: { billFreeAuthToken: true, isBillFreeConfigured: true, accessToken: true }, // Select accessToken too
       });
 
-      if (!shopSession || !shopSession.isBillFreeConfigured || !shopSession.billFreeAuthToken) {
-        console.error(`BillFree not configured or token missing for shop: ${session.shop} (Session ID: ${offlineSessionId})`);
-        return json({ message: "BillFree integration not configured for this shop." }, { status: 400 });
-      }
-
-      const billFreeAuthToken = shopSession.billFreeAuthToken;
-
-      auth_token = billFreeAuthToken;
-    if (!auth_token) {
-        console.warn(`[Redeem Proxy] Using temporary/hardcoded auth token for ${session.shop}. Please configure database lookup.`);
-        // In production, you'd likely throw an error here:
-        // throw new Error("Billfree Auth Token not securely retrieved from database.");
+    if (!shopSession || !shopSession.isBillFreeConfigured || !shopSession.billFreeAuthToken || !shopSession.accessToken) {
+        console.error(`BillFree not configured, tokens missing, or access token missing for shop: ${shopDomain}`);
+        return json({ message: "BillFree integration not fully configured for this shop." }, { status: 400 });
     }
+
+    auth_token = shopSession.billFreeAuthToken;
+    offlineAccessToken = shopSession.accessToken; // Use this for Shopify Admin API calls
+
+
+  if (!offlineAccessToken || !shopDomain) {
+    console.error(`[Loyalty Points Loader] No active session found. App needs to be installed/re-authenticated.`);
+    return json({ message: "Authentication required. App may need re-installation." }, { status: 401 });
+  }
+  
   } catch (error) {
     console.error("Error retrieving Billfree auth token from database:", error);
     return json({ error: "Failed to retrieve Billfree auth token from database." }, { status: 500 });
@@ -94,7 +91,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
       }
     `;
 
-    const client = new shopify_api.clients.Graphql({ session });
+    const client = new shopify_api.clients.Graphql({ session: { shop: shopDomain, accessToken: offlineAccessToken } as any });
 
     const response = await client.query({
       data: {

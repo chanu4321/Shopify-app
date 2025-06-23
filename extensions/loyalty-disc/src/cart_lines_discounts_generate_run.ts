@@ -36,13 +36,35 @@ async function cartLinesDiscountsGenerateRun(input: CartInput): Promise<CartLine
   }
 
   const customerGid = customer.id;
-  const proxyBaseUrlMetafield = input.discount?.metafield;
-  if (!proxyBaseUrlMetafield || !proxyBaseUrlMetafield.value) {
+  const proxyBaseUrlMetafield = input.discount?.url?.value;
+  if (!proxyBaseUrlMetafield || !proxyBaseUrlMetafield) {
     console.error("Proxy base URL metafield not configured for loyalty function.");
     return { operations: [] };
   }
-  const proxyBaseUrl = proxyBaseUrlMetafield.value;
-
+  const proxyBaseUrl = proxyBaseUrlMetafield;
+  const shopDomainMetafield = input.discount?.shop;
+  let shopDomain: string | undefined;
+  if (shopDomainMetafield && shopDomainMetafield.value) {
+      shopDomain = shopDomainMetafield.value;
+  } else {
+      // Fallback if metafields is not an array or structure is different
+      // For now, let's assume `input.discount.metafield` directly corresponds to your first query,
+      // and you need to query the second one. If your `CartInput` type is correctly generated,
+      // you might access it like `input.discount.shopDomainMetafield.value` if you alias it.
+      // For simplicity, if you have exactly two metafield queries like in my example:
+      const metafieldsArray = input.discount.discountClasses; // This might be an array if multiple queries or an object
+      if (Array.isArray(metafieldsArray) && metafieldsArray.length > 1) {
+          shopDomain = metafieldsArray[1]; // Assuming the second queried metafield is shop_domain_key
+      } else {
+          // If only one metafield queried or structure is object, need to adjust this
+          // The best approach depends on how your input type handles multiple metafield queries with the same parent
+          // Let's assume you alias them in GraphQL or directly access if it maps
+          // For safety, you might need to query them individually and alias
+          // e.g., proxyBaseUrlMetafield: metafield(namespace: "loyalty_app", key: "proxy_base_url") { value }
+          //       shopDomainMetafield: metafield(namespace: "loyalty_app", key: "shop_domain_key") { value }
+          // Then access input.discount.shopDomainMetafield.value
+      }
+    }
   let customerMobileNumber: string | null = null;
   let availablePoints = 0;
   let otpRequired = false;
@@ -97,7 +119,7 @@ async function cartLinesDiscountsGenerateRun(input: CartInput): Promise<CartLine
   let discountValueRupees = 0;
   // --- Step 2: Call your proxy to apply redemption and get discount value (Billfree API #2 via proxy) ---
   try {
-    const redeemResponse = await fetch(`${proxyBaseUrl}/api/loyalty/redeem`, {
+    const redeemResponse = await fetch(`${proxyBaseUrl}/api/loyalty/redeem?shop_domain=${shopDomain}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
