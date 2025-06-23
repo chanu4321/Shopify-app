@@ -16,11 +16,11 @@ const shopify = shopifyApp({
   appUrl: process.env.SHOPIFY_APP_URL || "https://shopify-app-ten-pi.vercel.app",
   authPathPrefix: "/auth",
   sessionStorage: new PrismaSessionStorage(prisma),
-  EnableGraphiQL: true,
   distribution: AppDistribution.AppStore,
   unstable_newEmbeddedAuthStrategy: true,
   unstable_enableWebhooks: true,
   isCustomStoreApp: false,
+  isEmbeddedApp: true
 });
 
 export const shopify_api = shopifyApi({
