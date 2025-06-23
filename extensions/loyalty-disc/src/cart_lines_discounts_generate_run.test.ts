@@ -15,6 +15,7 @@ describe("cartLinesDiscountsGenerateRun", () => {
       buyerIdentity: {
         customer: {
           id: "gid://shopify/Customer/0",
+          hasAnyTag: true
         },
       },
       lines: [
@@ -23,11 +24,18 @@ describe("cartLinesDiscountsGenerateRun", () => {
           cost: {
             subtotalAmount: {
               amount: 100,
-              
+              currencyCode: CurrencyCode.Inr,
             },
           },
+          quantity: 0
         },
       ],
+      cost: {
+            subtotalAmount: {
+              amount: 100,
+              currencyCode: CurrencyCode.Inr,
+            },
+          }
     },
     discount: {
       discountClasses: [],

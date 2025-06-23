@@ -7,6 +7,8 @@ import type { LoaderFunctionArgs } from "@remix-run/node";
 import { useLoaderData } from "@remix-run/react";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { Redirect } from "@shopify/app-bridge/actions";
+import type { ClientApplication } from "@shopify/app-bridge";
+import type { AppBridgeState } from "@shopify/app-bridge";
 
 // 1. Define an interface for the shape of the data returned by your loader
 interface LoaderData {
@@ -29,12 +31,15 @@ export async function loader({ request }: LoaderFunctionArgs) { // Type 'request
 export default function DiscountFunctionCreatePage() {
   // 2. Use the LoaderData interface to explicitly type the result of useLoaderData()
   const { message, functionId } = useLoaderData<LoaderData>();
-  const app = useAppBridge();
+  const appRaw = useAppBridge();
+  const app = appRaw as unknown as ClientApplication<AppBridgeState>;
 
   // Function to handle clicking 'Confirm' - redirects back to the main discounts list
-  const handleConfirmAndGoToDiscounts = () => {
-    const redirect = Redirect.create(app);
-    redirect.dispatch(Redirect.Action.ADMIN_PATH, { path: '/discounts' });
+   const handleConfirmAndGoToDiscounts = () => {
+    Redirect.create(app).dispatch(
+      Redirect.Action.ADMIN_PATH,
+      { path: "/discounts" }
+    );
   };
 
   return (
