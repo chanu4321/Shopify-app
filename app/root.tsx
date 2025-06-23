@@ -27,7 +27,7 @@ export async function loader({ request }: { request: Request }) {
 }
 
 export default function App() {
-  const { host, shop, shopifyApiKey } = useLoaderData<typeof loader>();
+  const { shopifyApiKey } = useLoaderData<typeof loader>();
 
   return (
     <html lang="en">
