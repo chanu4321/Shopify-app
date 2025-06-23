@@ -12,6 +12,8 @@ import createApp from '@shopify/app-bridge';
 interface LoaderData {
   message: string;
   functionId: string | null;
+  host: string; // Add host
+  shopifyApiKey: string; 
 }
 
 // Update the loader function with explicit typing for 'request' and its return value
@@ -19,23 +21,23 @@ export async function loader({ request }: LoaderFunctionArgs) { // Type 'request
   const url = new URL(request.url);
   const functionId = url.searchParams.get("function_id");
   console.log("Discount Function Create Page Loaded for Function ID:", functionId);
+  const host = url.searchParams.get("host")!; // Host should always be present in embedded apps
+  const shopifyApiKey = process.env.SHOPIFY_API_KEY!;
 
   return json<LoaderData>({ // Type the return of json() to match LoaderData
     message: "Your Loyalty Discount Function is being set up!",
     functionId: functionId,
+    host: host, // Pass host from loader
+    shopifyApiKey: shopifyApiKey,
   });
 }
-const config = {
-    // The client ID provided for your application in the Partner Dashboard.
-    apiKey: `${process.env.SHOPIFY_API_KEY}`,
-    // The host of the specific shop that's embedding your app. This value is provided by Shopify as a URL query parameter that's appended to your application URL when your app is loaded inside the Shopify admin.
-    host: new URLSearchParams(location.search).get("host") || "",
+export default function DiscountFunctionCreate() {
+  const { message, functionId, host, shopifyApiKey } = useLoaderData<LoaderData>();
+  const app = createApp({
+    apiKey: shopifyApiKey, // Use loaded apiKey
+    host: host,           // Use loaded host
     forceRedirect: true
-};
-
-export default function DiscountFunctionCreatePage() {
-  const { message, functionId } = useLoaderData<LoaderData>();
-  const app = createApp(config);
+  });
   const handleConfirmAndGoToDiscounts = () => {
     if (app) { // <--- CRUCIAL CHECK: Ensure 'app' is not null/undefined
       Redirect.create(app).dispatch(
