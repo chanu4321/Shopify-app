@@ -88,7 +88,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
   try {
     // Call the Billfree API #2 (apply_redemption)
-    const billfreeResponse = await fetch(`${process.env.BILLFREE_API_BASE_URL}/apply_redemption`, {
+    const billfreeResponse = await fetch(`${process.env.BILLFREE_API_REDEEM_URL}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
