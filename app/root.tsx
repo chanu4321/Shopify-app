@@ -10,8 +10,7 @@ import {
   Outlet,
   useLoaderData,
 } from "@remix-run/react";
-import { AppProvider as ShopifyAppProvider } from "@shopify/shopify-app-remix/react";
-import { AppProvider as PolarisProvider } from "@shopify/polaris";
+import { AppProvider } from "@shopify/shopify-app-remix/react";
 import enTranslations from "@shopify/polaris/locales/en.json";
 import polarisStylesUrl from "@shopify/polaris/build/esm/styles.css?url";
 
@@ -37,11 +36,9 @@ export default function App() {
         <Links />
       </head>
       <body>
-        <ShopifyAppProvider apiKey={shopifyApiKey}>
-          <PolarisProvider i18n={enTranslations}>
-            <Outlet />
-          </PolarisProvider>
-        </ShopifyAppProvider>
+        <AppProvider apiKey={shopifyApiKey} i18n={enTranslations}>
+          <Outlet />
+        </AppProvider>
         <ScrollRestoration />
         <Scripts />
         <LiveReload />
