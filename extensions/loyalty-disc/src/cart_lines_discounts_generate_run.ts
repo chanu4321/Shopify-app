@@ -42,10 +42,10 @@ async function cartLinesDiscountsGenerateRun(input: CartInput): Promise<CartLine
     return { operations: [] };
   }
   const proxyBaseUrl = proxyBaseUrlMetafield;
-  const shopDomainMetafield = input.discount?.shop;
+  const shopDomainMetafield = input.discount?.shop?.value;
   let shopDomain: string | undefined;
-  if (shopDomainMetafield && shopDomainMetafield.value) {
-      shopDomain = shopDomainMetafield.value;
+  if (shopDomainMetafield && shopDomainMetafield) {
+      shopDomain = shopDomainMetafield;
   } else {
       // Fallback if metafields is not an array or structure is different
       // For now, let's assume `input.discount.metafield` directly corresponds to your first query,

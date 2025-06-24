@@ -54,12 +54,14 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
   let customerMobileNumber: string | undefined;
   let auth_token: string;
-  let offlineAccessToken: string; // For Shopify Admin API calls
+  let offlineAccessToken: string;
+  let shopDomainFromSession: string;
+  let offlineSessionid: string;
   try {
     const offlineSessionId = `offline_${shopDomain}`;
     const shopSession = await db.session.findUnique({
         where: { id: offlineSessionId },
-        select: { billFreeAuthToken: true, isBillFreeConfigured: true, accessToken: true }, // Select accessToken too
+        select: { billFreeAuthToken: true, isBillFreeConfigured: true, accessToken: true, shop: true }, // Select accessToken too
       });
 
     if (!shopSession || !shopSession.isBillFreeConfigured || !shopSession.billFreeAuthToken || !shopSession.accessToken) {
@@ -69,7 +71,8 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
     auth_token = shopSession.billFreeAuthToken;
     offlineAccessToken = shopSession.accessToken; // Use this for Shopify Admin API calls
-
+    shopDomainFromSession = shopSession.shop; // Use the shop domain from the session
+    offlineSessionid = offlineSessionId; // Use the full session ID
 
   if (!offlineAccessToken || !shopDomain) {
     console.error(`[Loyalty Points Loader] No active session found. App needs to be installed/re-authenticated.`);
@@ -91,7 +94,16 @@ export async function loader({ request }: LoaderFunctionArgs) {
       }
     `;
 
-    const client = new shopify_api.clients.Graphql({ session: { shop: shopDomain, accessToken: offlineAccessToken } as any });
+    const client = new shopify_api.clients.Graphql({
+      session: {
+        id: offlineSessionid, // Use the full session ID
+        shop: shopDomainFromSession, // Use the domain from the DB session
+        accessToken: offlineAccessToken,
+        isOnline: false, // Assuming it's an offline session
+        state: "offline_session_state", // Provide a placeholder state, or retrieve from session.
+        scope: "", // Provide a placeholder scope or retrieve from session
+      } as any // Cast to any if strict typing is an issue and you're sure of structure
+    });
 
     const response = await client.query({
       data: {

@@ -4,9 +4,19 @@ import db from "../db.server"; // Assuming your Prisma DB client
 import { shopify_api } from "../shopify.server"; // Ensure you import shopify_api
 import { resolve } from "path";
 
-interface SetShopMetafieldResponse {
+interface GetShopIdResponseData {
+  shop: { id: string };
+}
+
+// Full type for the GraphQL response body
+interface GraphqlResponseBody<T> {
+    data?: T;
+    errors?: any[];
+}
+
+interface SetShopMetafieldResponseData {
   shopUpdate: {
-    shop: { id: string };
+    shop?: { id: string }; // shop can be null if userErrors exist
     userErrors: Array<{ field?: string[]; message?: string }>;
   };
 }
@@ -19,107 +29,105 @@ export async function loader({ request }: LoaderFunctionArgs) {
   }
 
   // Save/update the offline session in your DB (this likely already happens here)
-  const offlineSessionId = `offline_${session.shop}`;
-  await db.session.upsert({
-    where: { id: offlineSessionId },
-    update: {
-      accessToken: session.accessToken, // Save the offline token
-      // ... other session data
-    },
-    create: {
-      id: offlineSessionId,
-      shop: session.shop, // Save the myshopify.com domain
-      accessToken: session.accessToken,
-      isOnline: false,
-      state: session.state, // Save the state if needed
-      // ... other session data
-    },
-  });
-
-  // --- START OF STEP 4 IMPLEMENTATION ---
-  // Now, create or update a metafield on the DiscountAutomaticApp or Shop resource
-  // to store the shop's myshopify.com domain.
-
-  // 1. Get a Shopify GraphQL client using the authenticated session
-  const client = new shopify_api.clients.Graphql({ session });
-
+const offlineSessionId = `offline_${session.shop}`;
   try {
-    // For simplicity, let's assume you're setting it on the SHOP resource
-    // (This requires 'write_online_store_pages' or 'write_products' scope if metafields are associated with them)
-    // Or, if linked to a specific discount: gid://shopify/DiscountAutomaticApp/YOUR_DISCOUNT_ID
-    // You'll need to know your Discount ID, or fetch it. For now, let's target the Shop directly.
-
-    // Fetch the Shop's GID first, as metafields are often set on GIDs
-    const shopData = await client.query({
-      data:{
-    query: `
-      query GetShopId {
-        shop { id }
-      }
-    `,
-    // no variables here
-  }
+    // 1. Save/update the offline session in your DB
+    await db.session.upsert({
+      where: { id: offlineSessionId },
+      update: {
+        accessToken: session.accessToken,
+        state: session.state,
+        scope: session.scope, // Ensure 'scope' is saved if you need it for re-authentication checks
+      },
+      create: {
+        id: offlineSessionId,
+        shop: session.shop,
+        accessToken: session.accessToken,
+        isOnline: false, // Assuming this is for your offline token
+        state: session.state,
+        scope: session.scope,
+      },
     });
 
-    if (!shopData.body) {
-      console.error("Failed to fetch shop ID for metafield setting.");
-      throw new Error("Shop ID not found.");
-    }
-    const shopGid = shopData.body;
+    // 2. Get a Shopify GraphQL client using the authenticated session
+    // Pass the full session object to the client constructor
+    const client = new shopify_api.clients.Graphql({ session });
 
-    // Mutation to set the metafield on the Shop
-    const response = await client.query<SetShopMetafieldResponse>({
+    // 3. Fetch the Shop's GID (Corrected access to GraphQL response data)
+    const shopGidResponse = await client.query<GraphqlResponseBody<GetShopIdResponseData>>({
       data: {
-        query: `mutation SetShopDomainMetafield($id: ID!, $key: String!, $namespace: String!, $value: String!, $type: String!) {
+        query: `query GetShopId { shop { id } }`,
+      },
+    });
+
+    if (!shopGidResponse.body?.data?.shop?.id) { // More robust check
+      console.error("Failed to fetch shop ID for metafield setting:", shopGidResponse.body?.errors || "No data/ID in response.");
+      throw new Error("Shop ID not found or GraphQL error during shop ID fetch.");
+    }
+    const shopGid = shopGidResponse.body.data.shop.id; // Corrected access to the ID
+
+    // 4. Mutation to set the metafields on the Shop
+    //    We will set BOTH 'shop_domain_key' and 'proxy_base_url' here.
+    const appUrl = process.env.SHOPIFY_APP_URL; // Get your deployed app URL from env
+
+    if (!appUrl) {
+      console.error("SHOPIFY_APP_URL environment variable is not set. Cannot set proxy_base_url metafield.");
+      // Decide if this should stop the installation or just log a warning
+    }
+
+    const metafieldsToSet = [
+      {
+        key: "shop_domain_key",
+        namespace: "loyalty_app",
+        value: session.shop, // The myshopify.com domain
+        type: "single_line_text_field",
+      },
+      // *** Add the proxy_base_url metafield here ***
+      {
+        key: "proxy_base_url",
+        namespace: "loyalty_app",
+        value: appUrl || "", // Your app's deployed URL
+        type: "single_line_text_field", // Use 'url' type for URLs, or 'single_line_text_field'
+      },
+    ];
+
+    const setMetafieldsResponse = await client.query<GraphqlResponseBody<SetShopMetafieldResponseData>>({
+      data: {
+        query: `mutation SetShopMetafields($id: ID!, $metafields: [MetafieldsSetInput!]!) {
           shopUpdate(
             id: $id
-            metafields: [
-              {
-                key: $key
-                namespace: $namespace
-                value: $value
-                type: $type
-              }
-            ]
+            metafields: $metafields
           ) {
-            shop {
-              id
-            }
-            userErrors {
-              field
-              message
-            }
+            shop { id }
+            userErrors { field message }
           }
         }`,
         variables: {
           id: shopGid,
-          key: "shop_domain_key", // This is the key your Function will query
-          namespace: "loyalty_app", // Must match the namespace in run.graphql
-          value: session.shop,       // The myshopify.com domain
-          type: "single_line_text_field", // Or 'string' depending on API version and type
+          metafields: metafieldsToSet,
         },
-      }}
-    );
-    if (!response.body?.shopUpdate.shop.id) {
-      throw new Error("Shop update response missing");
+      },
+    });
+
+    if (!setMetafieldsResponse.body?.data) {
+      console.error("Metafield setting response missing body data.");
+      throw new Error("Metafield setting response missing data.");
     }
 
-// 2) Pull out the payload
-const { shopUpdate } = response.body;
+    const { shopUpdate } = setMetafieldsResponse.body.data;
 
-// 3) Check for errors
-if (shopUpdate.userErrors.length) {
-  console.error("Error setting shop domain metafield:", shopUpdate.userErrors);
-} else {
-  console.log(`Shop domain metafield set for shop ID: ${shopUpdate.shop.id}`);
-}
+    if (shopUpdate.userErrors && shopUpdate.userErrors.length > 0) {
+      console.error("[Auth.$.tsx Loader] Error setting shop domain/proxy_base_url metafields:", shopUpdate.userErrors);
+      // Decide if this error should block the app or just be logged
+    } else {
+      console.log(`[Auth.$.tsx Loader] Shop domain and proxy_base_url metafields set for shop ID: ${shopGid}`);
+    }
 
   } catch (error) {
-    console.error("Failed to set shop domain metafield during installation:", error);
-    // You might still redirect, but log the error
+    console.error("[Auth.$.tsx Loader] Failed to set metafields during installation/callback:", error);
   }
-  // --- END OF STEP 4 IMPLEMENTATION ---
+  // --- END OF METAFUNCTION IMPLEMENTATION ---
 
-  // Finally, redirect to your app's main page
+  // Finally, redirect to your app's main page after successful setup
   throw redirect("/app");
 }

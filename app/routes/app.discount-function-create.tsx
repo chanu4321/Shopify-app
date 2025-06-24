@@ -7,6 +7,7 @@ import type { LoaderFunctionArgs } from "@remix-run/node";
 import { useLoaderData } from "@remix-run/react";
 import { Redirect } from "@shopify/app-bridge/actions";
 import createApp from '@shopify/app-bridge';
+import { useAppBridge } from "@shopify/app-bridge-react";
 
 // 1. Define an interface for the shape of the data returned by your loader
 interface LoaderData {
@@ -31,20 +32,18 @@ export async function loader({ request }: LoaderFunctionArgs) { // Type 'request
     shopifyApiKey: shopifyApiKey,
   });
 }
-export default function DiscountFunctionCreate() {
-  const { message, functionId, host, shopifyApiKey } = useLoaderData<LoaderData>();
-  const app = createApp({
-    apiKey: shopifyApiKey, // Use loaded apiKey
-    host: host,           // Use loaded host
-    forceRedirect: true
-  });
+export default function DiscountFunctionCreatePage() {
+  const { message, functionId } = useLoaderData<LoaderData>();
+  // Use the useAppBridge hook to get the app instance
+  const app = useAppBridge(); // This hook ensures 'app' is only available on client-side after hydration
+
   const handleConfirmAndGoToDiscounts = () => {
-    if (app) { // <--- CRUCIAL CHECK: Ensure 'app' is not null/undefined
+    if (app) { // App will be available here only on client-side, and only after App Bridge initializes
       Redirect.create(app).dispatch(
         Redirect.Action.ADMIN_PATH,
         { path: "/discounts" }
       );
-    } else {
+    }  else {
       console.error("Shopify App Bridge 'app' instance is not available. Cannot redirect.");
       // Optional: Add a fallback here, e.g., a simple window.location.href,
       // though App Bridge redirect is preferred for embedded apps.

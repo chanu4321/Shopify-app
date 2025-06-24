@@ -30,9 +30,7 @@ query CartInput {
     # ADD THIS NEW METAFIELD QUERY TO FETCH THE SHOP DOMAIN
     shop: metafield(namespace: "loyalty_app", key: "shop_domain_key") { # Choose a distinct key, e.g., "shop_domain_key"
       value
-    }
-  }
-  discount {
     discountClasses
+    }
   }
 }
