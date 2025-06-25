@@ -46,7 +46,7 @@ export async function action({ request }: ActionFunctionArgs) {
   console.log("DEBUG_ENV_VAR_VALUE:", process.env.DEBUG); // Keep this for now for debug confirmation
   console.log("Incoming Flow Action request received.");
 
-  const BILLING_API_AUTH_TOKEN = process.env.BILLING_API_AUTH_TOKEN;
+
   const BILLING_API_BASE_URL = process.env.BILLING_API_BASE_URL;
 
   let rawBody: string; // Declare rawBody here to use it later
@@ -476,12 +476,12 @@ export async function action({ request }: ActionFunctionArgs) {
       console.log("Generated BillFree Payload:", JSON.stringify(billFreePayload, null, 2));
       console.log("DEBUG: About to make BillFree API call.");
       console.log("DEBUG: BILLING_API_BASE_URL:", BILLING_API_BASE_URL); // Using BASE_URL
-      console.log("DEBUG: BILLING_API_AUTH_TOKEN (first 5 chars):", BILLING_API_AUTH_TOKEN?.substring(0, 5) + '...');
+      console.log("DEBUG: BILLING_API_AUTH_TOKEN (first 5 chars):", billFreeAuthToken?.substring(0, 5) + '...');
       console.log("DEBUG: BillFree Payload (partial):", JSON.stringify(billFreePayload, null, 2).substring(0, 500) + '...');
 
       // --- Make the actual API call to BillFree ---
       // Added a more robust check for the base URL.
-      if (!BILLING_API_BASE_URL || !BILLING_API_AUTH_TOKEN) {
+      if (!BILLING_API_BASE_URL || !billFreeAuthToken) {
         console.error("ERROR: BILLING_API_BASE_URL or BILLING_API_AUTH_TOKEN environment variable is not set!");
         // Throw an error that your outer catch block can handle
         throw new Error("Missing BillFree API configuration environment variables.");
