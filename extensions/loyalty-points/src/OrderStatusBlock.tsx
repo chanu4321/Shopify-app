@@ -28,7 +28,7 @@ function LoyaltyPoints() {
   useEffect(() => {
     async function fetchLoyaltyPoints() {
       if (!api.authenticatedAccount.customer.current.id) {
-        setErrorMessage("Customer ID or Shop Domain not available.");
+        setErrorMessage("Customer ID not available.");
         setIsLoading(false);
         return;
       }

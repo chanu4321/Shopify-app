@@ -39,11 +39,11 @@ interface ProxyPointsResponse {
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const url = new URL(request.url);
-  const customerGid = url.searchParams.get("customer_gid");
+  const customerGid = url.searchParams.get("customer_id");
   const shopDomain = url.searchParams.get("shop_domain");
 
   if (!customerGid) {
-    return json({ error: "Customer GID missing in request parameters." }, { status: 400 });
+    return json({ error: "Customer ID missing in request parameters." }, { status: 400 });
   }
 
   // Extract Shopify Customer ID from GID
