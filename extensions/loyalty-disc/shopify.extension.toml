@@ -24,3 +24,9 @@ description = "t:description"
   [extensions.ui.paths]
   create = "/app/discount-function-create"
   details = "/app/discount-function-create"
+
+  [extensions.input]
+  inContext  = [
+    "url",
+    "discount.shop.domain"
+  ]

@@ -30,7 +30,8 @@ export const shopify_api = shopifyApi({
   hostName:        process.env.SHOPIFY_APP_URL!.replace(/^https?:\/\//, ""),
   apiVersion:      ApiVersion.April25,
   isCustomStoreApp: false,
-  isEmbeddedApp:   true
+  isEmbeddedApp:   true,
+  sessionStorage: new PrismaSessionStorage(prisma)
 });
 export default shopify;
 export const apiVersion = ApiVersion.April25;

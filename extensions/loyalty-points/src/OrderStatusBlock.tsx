@@ -6,68 +6,227 @@ import {
   useApi,
   Spinner,
   Heading,
+  Button,
+  TextField,
+  InlineStack,
 } from "@shopify/ui-extensions-react/customer-account";
-import { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react'
 
 export default reactExtension(
   "customer-account.profile.block.render",
   () => <LoyaltyPoints />
 );
-
+interface domainData {
+  shop: {
+    primaryDomain: {
+      url: string;
+    };
+  };
+}
 function LoyaltyPoints() {
-  const api = useApi<"customer-account.profile.block.render">();
-  console.log("DEBUG: Full UI Extension API object:", api);
-  console.log("DEBUG: api.customer object:", api.authenticatedAccount.customer);
-  console.log("DEBUG: api.customer?.current?.id:", api.authenticatedAccount.customer.current.id); // Check nested value with optional chaining
+  const { query, sessionToken, authenticatedAccount } = useApi();
+  const [shopDomain, setShopDomain] = useState('');
+
+  console.log("DEBUG: Full UI Extension API object:", { query, sessionToken, authenticatedAccount });
+  console.log("DEBUG: api.customer object:", authenticatedAccount.customer);
+  console.log("DEBUG: api.customer?.current?.id:", authenticatedAccount.customer.current.id);
 
   const [points, setPoints] = useState(null);
   const [errorMessage, setErrorMessage] = useState(null);
   const [schemeMessage, setSchemeMessage] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [otpFlag, setOtpFlag] = useState("n");
+  const [customerPhone, setCustomerPhone] = useState("");
+  
+  // Redemption states (keeping all existing fields)
+  const [isRedeeming, setIsRedeeming] = useState(false);
+  const [redemptionStep, setRedemptionStep] = useState("idle"); // idle, otp-sent, redeeming, success
+  const [otpCode, setOtpCode] = useState("");
+  const [billAmount, setBillAmount] = useState("");
+  const [discountCode, setDiscountCode] = useState("");
+  const [discountAmount, setDiscountAmount] = useState(0);
+  const [successMessage, setSuccessMessage] = useState("");
 
   useEffect(() => {
-    async function fetchLoyaltyPoints() {
-      if (!api.authenticatedAccount.customer.current.id) {
-        setErrorMessage("Customer ID not available.");
-        setIsLoading(false);
-        return;
-      }
-
-      const customerGid = api.authenticatedAccount.customer.current.id; // Correct way to get customer GID in UI Extensions
-        // Correct way to get shop domain in UI Extensions
-
-      // **IMPORTANT: Your App Proxy path, confirmed from previous steps**
-      // This is relative to the storefront domain (e.g., my-shop.myshopify.com)
-      const appProxyPath = '/apps/api/loyalty/points';
-
+    const fetchShopDomainAndPoints = async () => {
       try {
-        // Construct the URL. window.location.origin refers to the storefront domain
-        const response = await fetch(`${window.location.origin}${appProxyPath}?customer_id=${customerGid}`);
+        // First, fetch the shop domain
+        const { data } = await query<domainData>(
+          `query {
+            shop {
+              primaryDomain {
+                url
+              }
+            }
+          }`
+        );
+
+        const domain = data?.shop?.primaryDomain?.url;
+        if (!domain) {
+          throw new Error("Shop domain not found.");
+        }
+        // Remove "https://" from the domain
+        const formattedDomain = domain.replace(/^https?:\/\//, '');
+        setShopDomain(formattedDomain);
+
+        // Now, fetch loyalty points
+        if (!authenticatedAccount.customer.current.id) {
+          setErrorMessage("Customer ID not available.");
+          setIsLoading(false);
+          return;
+        }
+
+        const customerGid = authenticatedAccount.customer.current.id;
+        const backendUrl = `https://${formattedDomain}/apps/api/loyalty/points`;
+        const token = await sessionToken.get();
+        const requestUrl = `${backendUrl}?customer_id=${customerGid}`;
+
+        const response = await fetch(requestUrl, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+        });
 
         if (!response.ok) {
-          const errorData = await response.json().catch(() => ({ error: 'Unknown error', scheme_message: '' }));
-          throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+          const text = await response.text();
+          let errorPayload: { error?: string; scheme_message?: string } = {};
+          try {
+            errorPayload = JSON.parse(text);
+          } catch {
+            /* not JSON */
+          }
+          const message = errorPayload.error || text || `HTTP ${response.status}`;
+          throw new Error(message);
         }
 
-        const data = await response.json();
+        const responseData = await response.json();
+        console.log("DEBUG: Data received from backend:", responseData);
 
-        if (data.error) {
-          setErrorMessage(data.error);
-          setSchemeMessage(data.scheme_message || '');
+        if (responseData.error) {
+          setErrorMessage(responseData.error);
+          setSchemeMessage(responseData.scheme_message || '');
         } else {
-          setPoints(data.balance);
-          setSchemeMessage(data.scheme_message || '');
+          setPoints(responseData.balance);
+          setSchemeMessage(responseData.scheme_message || '');
+          setOtpFlag(responseData.otpFlag || "n");
+          setCustomerPhone(responseData.customerMobileNumber || "");
         }
       } catch (error) {
-        console.error("Error fetching loyalty points:", error);
+        console.error("Error during setup:", error);
         setErrorMessage(`Could not load loyalty points. ${error.message}`);
       } finally {
         setIsLoading(false);
       }
-    }
+    };
 
-    fetchLoyaltyPoints();
-  }, [api]); // Re-run if customer or shop data changes (though unlikely for these)
+    fetchShopDomainAndPoints();
+  }, [query, sessionToken, authenticatedAccount]);
+
+  // Handler for sending OTP
+  const handleSendOTP = async () => {
+    if (!shopDomain) return;
+    setIsRedeeming(true);
+    try {
+      const token = await sessionToken.get();
+      const response = await fetch(`https://${shopDomain}/apps/api/send-otp`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          user_phone: customerPhone
+        })
+      });
+      
+      const data = await response.json();
+      if (response.ok) {
+        setRedemptionStep("otp-sent");
+      } else {
+        setErrorMessage(data.error || 'Failed to send OTP');
+      }
+    } catch (error) {
+      setErrorMessage('Network error while sending OTP');
+    } finally {
+      setIsRedeeming(false);
+    }
+  };
+
+  // Handler for direct redemption (no OTP)
+  const handleDirectRedeem = async () => {
+    if (!shopDomain) return;
+    setIsRedeeming(true);
+    try {
+      const token = await sessionToken.get();
+      const response = await fetch(`https://${shopDomain}/apps/api/loyalty/redeem-points`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          customer_id: authenticatedAccount.customer.current.id,
+          bill_amt: billAmount
+        })
+      });
+      
+      const data = await response.json();
+      if (response.ok && data.success) {
+        setDiscountCode(data.discountCode);
+        setDiscountAmount(data.discountAmount);
+        setSuccessMessage(data.message);
+        setRedemptionStep("success");
+        // Refresh points
+        setPoints(prevPoints => Math.max(0, prevPoints - data.pointsRedeemed || 0));
+      } else {
+        setErrorMessage(data.error || 'Failed to redeem points');
+      }
+    } catch (error) {
+      setErrorMessage('Network error while redeeming points');
+    } finally {
+      setIsRedeeming(false);
+    }
+  };
+
+  // Handler for OTP verification and redemption
+  const handleVerifyOTPAndRedeem = async () => {
+    if (!shopDomain) return;
+    setIsRedeeming(true);
+    try {
+      const token = await sessionToken.get();
+      const response = await fetch(`https://${shopDomain}/apps/api/loyalty/redeem-points`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          customer_id: authenticatedAccount.customer.current.id,
+          bill_amt: billAmount,
+          otp_code: otpCode
+        })
+      });
+      
+      const data = await response.json();
+      if (response.ok && data.success) {
+        setDiscountCode(data.discountCode);
+        setDiscountAmount(data.discountAmount);
+        setSuccessMessage(data.message);
+        setRedemptionStep("success");
+        setOtpCode(""); // Clear OTP
+        // Refresh points
+        setPoints(prevPoints => Math.max(0, prevPoints - data.pointsRedeemed || 0));
+      } else {
+        setErrorMessage(data.error || 'Failed to verify OTP or redeem points');
+      }
+    } catch (error) {
+      setErrorMessage('Network error while verifying OTP');
+    } finally {
+      setIsRedeeming(false);
+    }
+  };
 
   return (
     <BlockStack inlineAlignment="center" padding="base">
@@ -86,6 +245,84 @@ function LoyaltyPoints() {
       )}
       {schemeMessage && !errorMessage && (
         <TextBlock size="small" inlineAlignment="center">{schemeMessage}</TextBlock>
+      )}
+      
+      {/* Redemption Section */}
+      {points > 0 && !errorMessage && (
+        <BlockStack spacing="base">
+          <Heading level={4}>Redeem Points</Heading>
+          
+          {redemptionStep === "idle" && (
+            <BlockStack spacing="base">
+              <TextField
+                label="Cart Amount (₹)"
+                value={billAmount}
+                onChange={setBillAmount}
+                
+              />
+              {otpFlag === "y" ? (
+                <Button
+                  onPress={handleSendOTP}
+                  disabled={!billAmount || isRedeeming || !shopDomain}
+                  loading={isRedeeming}
+                >
+                  Send OTP to Redeem
+                </Button>
+              ) : (
+                <Button
+                  onPress={handleDirectRedeem}
+                  disabled={!billAmount || isRedeeming || !shopDomain}
+                  loading={isRedeeming}
+                >
+                  Redeem Points
+                </Button>
+              )}
+            </BlockStack>
+          )}
+          
+          {redemptionStep === "otp-sent" && (
+            <BlockStack spacing="base">
+              <Banner status="info" title="OTP Sent">
+                <TextBlock>Please enter the OTP sent to {customerPhone}</TextBlock>
+              </Banner>
+              <TextField
+                label="Enter OTP"
+                value={otpCode}
+                onChange={setOtpCode}
+                
+              />
+              <InlineStack spacing="base">
+                <Button
+                  onPress={handleVerifyOTPAndRedeem}
+                  disabled={!otpCode || isRedeeming || !shopDomain}
+                  loading={isRedeeming}
+                >
+                  Verify & Redeem
+                </Button>
+                <Button
+                  onPress={() => setRedemptionStep("idle")}
+                  disabled={isRedeeming}
+                >
+                  Cancel
+                </Button>
+              </InlineStack>
+            </BlockStack>
+          )}
+          
+          {redemptionStep === "success" && (
+            <BlockStack spacing="base">
+              <Banner status="success" title="Redemption Successful!">
+                <TextBlock>{successMessage}</TextBlock>
+                <TextBlock emphasis="bold">Discount Code: {discountCode}</TextBlock>
+                <TextBlock>Discount Amount: ₹{discountAmount}</TextBlock>
+                <TextBlock size="small">Copy this code and use it at checkout!</TextBlock>
+              </Banner>
+              <Button onPress={() => setRedemptionStep("idle")}>
+                Redeem More Points
+              </Button>
+            </BlockStack>
+          )}
+        </BlockStack>
       )}
     </BlockStack>
   );

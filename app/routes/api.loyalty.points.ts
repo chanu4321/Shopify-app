@@ -1,52 +1,77 @@
-// app/routes/api.loyalty.points.ts
-
 import type { LoaderFunctionArgs } from "@remix-run/node";
-import { json, } from "@remix-run/node";
-import { shopify_api } from "../shopify.server";
-import db from "../db.server"; // Adjust the import path as per your project structure
+import { json } from "@remix-run/node";
+import { authenticate, shopify_api } from "../shopify.server";
+import db from "../db.server";
 
-// Define interfaces for your Billfree API response
+// Define interfaces for the data structures used in this route
 interface BillfreePointsResponse {
   error: boolean;
-  response: string; // e.g., "l2"
-  balance: number; // Renamed from 'points' to 'balance' as per your example
-  otpFlag: "y" | "n"; // Add otpFlag
-  scheme_message: string; // Add scheme_message
-  // Add any other relevant data from your Billfree API #1
+  response: string;
+  balance: number;
+  otpFlag: "y" | "n";
+  scheme_message: string;
 }
 
-// Define the expected structure of the GraphQL response data for clarity
 interface GetCustomerPhoneResponseData {
   customer?: {
     phone?: string | null;
   };
 }
 
-// Define the full GraphQL response body structure
 interface GraphqlResponseBody<T> {
   data?: T;
-  errors?: any[]; // Array of GraphQL errors if any
+  errors?: any[];
 }
 
-// New interface for the proxy's return value (what the Function/UI Extension receives)
 interface ProxyPointsResponse {
-  balance: number; // Renamed for consistency
+  balance: number;
   scheme_message: string;
   otpFlag: "y" | "n";
   customerMobileNumber?: string;
-  error?: string; // For proxy-specific errors
+  error?: string;
 }
 
 export async function loader({ request }: LoaderFunctionArgs) {
-  const url = new URL(request.url);
-  const customerGid = url.searchParams.get("customer_id");
-  const shopDomain = url.searchParams.get("shop_domain");
-
-  if (!customerGid) {
-    return json({ error: "Customer ID missing in request parameters." }, { status: 400 });
+  // Manually handle preflight requests
+  if (request.method === "OPTIONS") {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        "Access-Control-Allow-Origin": "*", // You may want to restrict this to your shop's domain in production
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization",
+      },
+    });
   }
 
-  // Extract Shopify Customer ID from GID
+  // Authenticate the actual request
+  const { cors } = await authenticate.public.customerAccount(request);
+
+  const url = new URL(request.url);
+  const customerGid = url.searchParams.get("customer_id");
+
+  if (!customerGid) {
+    return cors(json({ error: "Customer ID missing." }, { status: 400 }));
+  }
+
+  const authHeader = request.headers.get("Authorization");
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return cors(json({ error: "Missing or invalid authorization token." }, { status: 401 }));
+  }
+  const token = authHeader.substring(7);
+
+  try {
+    const session = await shopify_api.session.decodeSessionToken(token);
+    const shopDomain = session.dest.replace("https://", "");
+    const response = await handleLoyaltyPoints(customerGid, shopDomain);
+    return cors(response);
+  } catch (error: any) {
+    console.error("Error decoding session token:", error);
+    return cors(json({ error: `Invalid session token: ${error.message}` }, { status: 401 }));
+  }
+}
+
+async function handleLoyaltyPoints(customerGid: string, shopDomain: string) {
   const customerShopifyId = customerGid.split('/').pop();
   if (!customerShopifyId) {
     return json({ error: "Invalid Customer GID format." }, { status: 400 });
@@ -57,35 +82,30 @@ export async function loader({ request }: LoaderFunctionArgs) {
   let offlineAccessToken: string;
   let shopDomainFromSession: string;
   let offlineSessionid: string;
+
   try {
     const offlineSessionId = `offline_${shopDomain}`;
     const shopSession = await db.session.findUnique({
-        where: { id: offlineSessionId },
-        select: { billFreeAuthToken: true, isBillFreeConfigured: true, accessToken: true, shop: true }, // Select accessToken too
-      });
+      where: { id: offlineSessionId },
+      select: { billFreeAuthToken: true, isBillFreeConfigured: true, accessToken: true, shop: true },
+    });
 
-    if (!shopSession || !shopSession.isBillFreeConfigured || !shopSession.billFreeAuthToken || !shopSession.accessToken) {
-        console.error(`BillFree not configured, tokens missing, or access token missing for shop: ${shopDomain}`);
-        return json({ message: "BillFree integration not fully configured for this shop." }, { status: 400 });
+    if (!shopSession?.isBillFreeConfigured || !shopSession.billFreeAuthToken || !shopSession.accessToken) {
+      console.error(`BillFree not configured or tokens missing for shop: ${shopDomain}`);
+      return json({ message: "BillFree integration not fully configured." }, { status: 400 });
     }
 
     auth_token = shopSession.billFreeAuthToken;
-    offlineAccessToken = shopSession.accessToken; // Use this for Shopify Admin API calls
-    shopDomainFromSession = shopSession.shop; // Use the shop domain from the session
-    offlineSessionid = offlineSessionId; // Use the full session ID
+    offlineAccessToken = shopSession.accessToken;
+    shopDomainFromSession = shopSession.shop;
+    offlineSessionid = offlineSessionId;
 
-  if (!offlineAccessToken || !shopDomain) {
-    console.error(`[Loyalty Points Loader] No active session found. App needs to be installed/re-authenticated.`);
-    return json({ message: "Authentication required. App may need re-installation." }, { status: 401 });
-  }
-  
   } catch (error) {
-    console.error("Error retrieving Billfree auth token from database:", error);
-    return json({ error: "Failed to retrieve Billfree auth token from database." }, { status: 500 });
+    console.error("DB Error:", error);
+    return json({ error: "Failed to retrieve BillFree auth token." }, { status: 500 });
   }
 
   try {
-    // Step 1: Fetch customer phone number from Shopify Admin API
     const query = `
       query GetCustomerPhone($id: ID!) {
         customer(id: $id) {
@@ -96,13 +116,11 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
     const client = new shopify_api.clients.Graphql({
       session: {
-        id: offlineSessionid, // Use the full session ID
-        shop: shopDomainFromSession, // Use the domain from the DB session
+        id: offlineSessionid,
+        shop: shopDomainFromSession,
         accessToken: offlineAccessToken,
-        isOnline: false, // Assuming it's an offline session
-        state: "offline_session_state", // Provide a placeholder state, or retrieve from session.
-        scope: "", // Provide a placeholder scope or retrieve from session
-      } as any // Cast to any if strict typing is an issue and you're sure of structure
+        isOnline: false,
+      } as any,
     });
 
     const response = await client.query({
@@ -112,44 +130,20 @@ export async function loader({ request }: LoaderFunctionArgs) {
       },
     });
 
-    if (!response.body) {
-      console.error("Shopify GraphQL response missing body (no data received).");
-      throw new Response("Internal Server Error: No data received from Shopify.", { status: 500 });
+    const responseBody = response.body as unknown as GraphqlResponseBody<GetCustomerPhoneResponseData>;
+    if (responseBody.errors?.length) {
+      throw new Error(responseBody.errors.map(e => e.message).join(', '));
     }
-
-    const responseBody = response.body as GraphqlResponseBody<GetCustomerPhoneResponseData>;
-    const data = responseBody.data;
-
-    if (responseBody.errors && responseBody.errors.length > 0) {
-      console.error("Shopify Admin API GraphQL errors:", responseBody.errors);
-      responseBody.errors.forEach((err: any) => console.error(err.message));
-      return json({ error: "Failed to fetch customer phone number from Shopify due to API errors." }, { status: 500 });
-    }
-
-    if (!data) {
-      console.error("Shopify GraphQL response 'data' object is missing.");
-      return json({ error: "Failed to retrieve customer data from Shopify." }, { status: 500 });
-    }
-
-    customerMobileNumber = data.customer?.phone ?? undefined;
+    customerMobileNumber = responseBody.data?.customer?.phone ?? undefined;
 
   } catch (e: any) {
-    console.error("Error fetching customer phone number from Shopify Admin API:", e);
-    let errorMessage = "Server error during phone number lookup from Shopify.";
-    if (e instanceof Response) {
-      return e;
-    } else if (e.response?.body?.errors) {
-      errorMessage = `Shopify API Error: ${JSON.stringify(e.response.body.errors)}`;
-    } else if (e.message) {
-      errorMessage = `Error: ${e.message}`;
-    }
-    return json({ error: errorMessage }, { status: 500 });
+    console.error("Shopify API Error:", e);
+    return json({ error: "Failed to fetch customer phone number from Shopify." }, { status: 500 });
   }
 
   if (!customerMobileNumber) {
-    // If no mobile number, cannot query Billfree, provide default values
     return json({
-      error: "Customer phone number not available on Shopify profile. Cannot fetch loyalty points.",
+      error: "Customer phone number not available on Shopify profile.",
       balance: 0,
       scheme_message: "Please add a phone number to your profile to check loyalty points.",
       otpFlag: "y",
@@ -157,35 +151,26 @@ export async function loader({ request }: LoaderFunctionArgs) {
     } as ProxyPointsResponse, { status: 200 });
   }
 
-  // Step 2: Call your Billfree API #1 to get points balance
   try {
     const billfreeResponse = await fetch(`${process.env.BILLFREE_API_POINTS_URL}`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(
-        {
-          "auth_token": auth_token, // Use the retrieved token
-          "user_phone": `${customerMobileNumber}`,
-          "dial_code": "91"
-        }
-      )
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        "auth_token": auth_token,
+        "user_phone": customerMobileNumber,
+        "dial_code": "91"
+      })
     });
 
     if (!billfreeResponse.ok) {
-      const errorText = await billfreeResponse.text();
-      console.error(`Billfree API (get_points_balance) error: ${billfreeResponse.status} - ${errorText}`);
-      throw new Error(`Billfree API (get_points_balance) failed: ${billfreeResponse.statusText}`);
+      throw new Error(`BillFree API failed: ${billfreeResponse.statusText}`);
     }
 
     const billfreeData: BillfreePointsResponse = await billfreeResponse.json();
 
     if (billfreeData.error) {
-      console.error(`Billfree API returned error: ${JSON.stringify(billfreeData)}`);
-      // You might want to return an error status or specific error message here
       return json({
-        error: `Billfree API reported an error: ${billfreeData.response}`,
+        error: `BillFree API Error: ${billfreeData.response}`,
         balance: 0,
         scheme_message: billfreeData.scheme_message,
         otpFlag: billfreeData.otpFlag,
@@ -193,7 +178,6 @@ export async function loader({ request }: LoaderFunctionArgs) {
       } as ProxyPointsResponse, { status: 500 });
     }
 
-    // Prepare response for Shopify Function/UI Extension
     const proxyResponse: ProxyPointsResponse = {
       balance: billfreeData.balance,
       scheme_message: billfreeData.scheme_message,
@@ -201,9 +185,10 @@ export async function loader({ request }: LoaderFunctionArgs) {
       customerMobileNumber: customerMobileNumber,
     };
 
-    return json(proxyResponse); // Forward all relevant data
+    return json(proxyResponse);
+
   } catch (error: any) {
-    console.error("Error fetching loyalty points from Billfree:", error);
-    return json({ error: `Failed to fetch loyalty points from external service: ${error.message}` }, { status: 500 });
+    console.error("BillFree API Error:", error);
+    return json({ error: `Failed to fetch loyalty points: ${error.message}` }, { status: 500 });
   }
 }

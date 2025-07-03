@@ -8,11 +8,12 @@ import { useLoaderData } from "@remix-run/react";
 import { Redirect } from "@shopify/app-bridge/actions";
 import createApp from '@shopify/app-bridge';
 import { useAppBridge } from "@shopify/app-bridge-react";
+import { StringValidation } from "zod";
 
 // 1. Define an interface for the shape of the data returned by your loader
 interface LoaderData {
   message: string;
-  functionId: string | null;
+  functionId: string;
   host: string; // Add host
   shopifyApiKey: string; 
 }
@@ -20,7 +21,7 @@ interface LoaderData {
 // Update the loader function with explicit typing for 'request' and its return value
 export async function loader({ request }: LoaderFunctionArgs) { // Type 'request' here
   const url = new URL(request.url);
-  const functionId = url.searchParams.get("function_id");
+  const functionId = "e8bcbb77-d4fa-4d6a-ada3-e7096901ffc6";
   console.log("Discount Function Create Page Loaded for Function ID:", functionId);
   const host = url.searchParams.get("host")!; // Host should always be present in embedded apps
   const shopifyApiKey = process.env.SHOPIFY_API_KEY!;
@@ -61,11 +62,11 @@ export default function DiscountFunctionCreatePage() {
             </Text>
             <p>{message}</p>
             <p>
-              This function (ID: {functionId || 'N/A'}) dynamically applies loyalty discounts.
+              This function (ID: {functionId}) dynamically applies loyalty discounts.
               Its logic is fully managed by your backend.
             </p>
             <p>
-              **Important:** Ensure your `loyalty_app.proxy_base_url` metafield is correctly configured for this Function's configuration (e.g., via the Shopify Partner Dashboard under your app settings or through an API call), so it can communicate with your proxy server.
+              Once you confirm, you can go to the Discounts page to see and manage your loyalty discounts.
             </p>
             <Layout.Section>
               <Button onClick={handleConfirmAndGoToDiscounts}>
