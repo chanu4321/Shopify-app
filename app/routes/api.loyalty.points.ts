@@ -14,7 +14,9 @@ interface BillfreePointsResponse {
 
 interface GetCustomerPhoneResponseData {
   customer?: {
-    phone?: string | null;
+    defaultPhoneNumber?: {
+      phoneNumber: string | null;
+    } | null;
   };
 }
 
@@ -31,50 +33,44 @@ interface ProxyPointsResponse {
   error?: string;
 }
 
+const corsHeaders = { "Access-Control-Allow-Origin": "*" };
+
 export async function loader({ request }: LoaderFunctionArgs) {
-  // Manually handle preflight requests
-  if (request.method === "OPTIONS") {
-    return new Response(null, {
-      status: 204,
-      headers: {
-        "Access-Control-Allow-Origin": "*", // You may want to restrict this to your shop's domain in production
-        "Access-Control-Allow-Methods": "GET, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, Authorization",
-      },
-    });
-  }
 
   // Authenticate the actual request
-  const { cors } = await authenticate.public.customerAccount(request);
+  await authenticate.public.customerAccount(request);
 
   const url = new URL(request.url);
-  const customerGid = url.searchParams.get("customer_id");
+  const customerid = url.searchParams.get("customer_id");
 
-  if (!customerGid) {
-    return cors(json({ error: "Customer ID missing." }, { status: 400 }));
+  if (!customerid) {
+    return json({ error: "Customer ID missing." }, { status: 400, headers: corsHeaders });
   }
 
   const authHeader = request.headers.get("Authorization");
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return cors(json({ error: "Missing or invalid authorization token." }, { status: 401 }));
+    return json({ error: "Missing or invalid authorization token." }, { status: 401, headers: corsHeaders });
   }
   const token = authHeader.substring(7);
 
   try {
     const session = await shopify_api.session.decodeSessionToken(token);
     const shopDomain = session.dest.replace("https://", "");
-    const response = await handleLoyaltyPoints(customerGid, shopDomain);
-    return cors(response);
+    console.log("Shop Domain:", shopDomain);
+    const response = await handleLoyaltyPoints(customerid, shopDomain);
+    
+    return response;
+
   } catch (error: any) {
     console.error("Error decoding session token:", error);
-    return cors(json({ error: `Invalid session token: ${error.message}` }, { status: 401 }));
+    return json({ error: `Invalid session token: ${error.message}` }, { status: 401, headers: corsHeaders });
   }
 }
 
-async function handleLoyaltyPoints(customerGid: string, shopDomain: string) {
-  const customerShopifyId = customerGid.split('/').pop();
+async function handleLoyaltyPoints(customerid: string, shopDomain: string) {
+  const customerShopifyId = customerid.split('/').pop();
   if (!customerShopifyId) {
-    return json({ error: "Invalid Customer GID format." }, { status: 400 });
+    return json({ error: "Invalid Customer GID format." }, { status: 400, headers: corsHeaders });
   }
 
   let customerMobileNumber: string | undefined;
@@ -92,7 +88,7 @@ async function handleLoyaltyPoints(customerGid: string, shopDomain: string) {
 
     if (!shopSession?.isBillFreeConfigured || !shopSession.billFreeAuthToken || !shopSession.accessToken) {
       console.error(`BillFree not configured or tokens missing for shop: ${shopDomain}`);
-      return json({ message: "BillFree integration not fully configured." }, { status: 400 });
+      return json({ message: "BillFree integration not fully configured." }, { status: 400, headers: corsHeaders });
     }
 
     auth_token = shopSession.billFreeAuthToken;
@@ -102,16 +98,18 @@ async function handleLoyaltyPoints(customerGid: string, shopDomain: string) {
 
   } catch (error) {
     console.error("DB Error:", error);
-    return json({ error: "Failed to retrieve BillFree auth token." }, { status: 500 });
+    return json({ error: "Failed to retrieve BillFree auth token." }, { status: 500, headers: corsHeaders });
   }
 
   try {
     const query = `
       query GetCustomerPhone($id: ID!) {
         customer(id: $id) {
-          phone
-        }
+          defaultPhoneNumber {
+            phoneNumber
       }
+    }
+  }
     `;
 
     const client = new shopify_api.clients.Graphql({
@@ -126,19 +124,19 @@ async function handleLoyaltyPoints(customerGid: string, shopDomain: string) {
     const response = await client.query({
       data: {
         query: query,
-        variables: { id: customerGid },
+        variables: { id: `"gid://shopify/Customer/${customerid}"` },
       },
     });
 
-    const responseBody = response.body as unknown as GraphqlResponseBody<GetCustomerPhoneResponseData>;
+    const responseBody = response as GraphqlResponseBody<GetCustomerPhoneResponseData>;
     if (responseBody.errors?.length) {
       throw new Error(responseBody.errors.map(e => e.message).join(', '));
     }
-    customerMobileNumber = responseBody.data?.customer?.phone ?? undefined;
+    customerMobileNumber = responseBody.data?.customer?.defaultPhoneNumber?.phoneNumber ?? undefined;
 
   } catch (e: any) {
     console.error("Shopify API Error:", e);
-    return json({ error: "Failed to fetch customer phone number from Shopify." }, { status: 500 });
+    return json({ error: "Failed to fetch customer phone number from Shopify." }, { status: 500, headers: corsHeaders });
   }
 
   if (!customerMobileNumber) {
@@ -148,7 +146,7 @@ async function handleLoyaltyPoints(customerGid: string, shopDomain: string) {
       scheme_message: "Please add a phone number to your profile to check loyalty points.",
       otpFlag: "y",
       customerMobileNumber: undefined
-    } as ProxyPointsResponse, { status: 200 });
+    } as ProxyPointsResponse, { status: 200, headers: corsHeaders });
   }
 
   try {
@@ -175,7 +173,7 @@ async function handleLoyaltyPoints(customerGid: string, shopDomain: string) {
         scheme_message: billfreeData.scheme_message,
         otpFlag: billfreeData.otpFlag,
         customerMobileNumber: customerMobileNumber
-      } as ProxyPointsResponse, { status: 500 });
+      } as ProxyPointsResponse, { status: 500, headers: corsHeaders });
     }
 
     const proxyResponse: ProxyPointsResponse = {
@@ -185,10 +183,10 @@ async function handleLoyaltyPoints(customerGid: string, shopDomain: string) {
       customerMobileNumber: customerMobileNumber,
     };
 
-    return json(proxyResponse);
+    return json(proxyResponse, { headers: corsHeaders });
 
   } catch (error: any) {
     console.error("BillFree API Error:", error);
-    return json({ error: `Failed to fetch loyalty points: ${error.message}` }, { status: 500 });
+    return json({ error: `Failed to fetch loyalty points: ${error.message}` }, { status: 500, headers: corsHeaders });
   }
 }

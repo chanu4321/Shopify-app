@@ -1,4 +1,4 @@
-import type { ActionFunctionArgs } from "@remix-run/node";
+import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
 import { authenticate, shopify_api } from "../shopify.server";
 import db from "../db.server";
@@ -14,27 +14,20 @@ interface BillfreeSendOtpResponse {
   token?: string;
 }
 
+const corsHeaders = { "Access-Control-Allow-Origin": "*" };
+
+
+
 export async function action({ request }: ActionFunctionArgs) {
-  // Manually handle preflight requests
-  if (request.method === "OPTIONS") {
-    return new Response(null, {
-      status: 204,
-      headers: {
-        "Access-Control-Allow-Origin": "*", // You may want to restrict this to your shop's domain in production
-        "Access-Control-Allow-Methods": "POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, Authorization",
-      },
-    });
-  }
   if (request.method !== "POST") {
-    return json({ error: "Method Not Allowed" }, { status: 405 });
+    return json({ error: "Method Not Allowed" }, { status: 405, headers: corsHeaders });
   }
 
-  const { cors } = await authenticate.public.customerAccount(request);
+  await authenticate.public.customerAccount(request);
 
   const authHeader = request.headers.get("Authorization");
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return cors(json({ error: "Missing or invalid authorization token." }, { status: 401 }));
+    return json({ error: "Missing or invalid authorization token." }, { status: 401, headers: corsHeaders });
   }
   const token = authHeader.substring(7);
 
@@ -44,14 +37,14 @@ export async function action({ request }: ActionFunctionArgs) {
     shopDomain = session.dest.replace("https://", "");
   } catch (error: any) {
     console.error("Error decoding session token:", error);
-    return cors(json({ error: `Invalid session token: ${error.message}` }, { status: 401 }));
+    return json({ error: `Invalid session token: ${error.message}` }, { status: 401, headers: corsHeaders });
   }
 
   const payload: SendOtpRequestPayload = await request.json();
   const { user_phone } = payload;
 
   if (!user_phone) {
-    return cors(json({ error: "Customer phone number is required." }, { status: 400 }));
+    return json({ error: "Customer phone number is required." }, { status: 400, headers: corsHeaders });
   }
 
   let auth_token: string;
@@ -64,13 +57,13 @@ export async function action({ request }: ActionFunctionArgs) {
 
     if (!shopSession?.isBillFreeConfigured || !shopSession.billFreeAuthToken) {
       console.error(`BillFree not configured or token missing for shop: ${shopDomain}`);
-      return cors(json({ message: "BillFree integration not configured." }, { status: 400 }));
+      return json({ message: "BillFree integration not configured." }, { status: 400, headers: corsHeaders });
     }
     auth_token = shopSession.billFreeAuthToken;
 
   } catch (error) {
     console.error("DB Error:", error);
-    return cors(json({ error: "Failed to retrieve BillFree auth token." }, { status: 500 }));
+    return json({ error: "Failed to retrieve BillFree auth token." }, { status: 500, headers: corsHeaders });
   }
 
   try {
@@ -94,13 +87,13 @@ export async function action({ request }: ActionFunctionArgs) {
     const data: BillfreeSendOtpResponse = await billfreeResponse.json();
 
     if (data.error) {
-      return cors(json({ error: false, message: data.response }, { status: 400 }));
+      return json({ error: false, message: data.response }, { status: 400, headers: corsHeaders });
     }
 
-    return cors(json({ error: true, message: data.response, token: data.token, response: data.response }));
+    return json({ error: true, message: data.response, token: data.token, response: data.response }, { headers: corsHeaders });
 
   } catch (error: any) {
     console.error("Error sending OTP:", error);
-    return cors(json({ error: false, message: `Failed to send OTP: ${error.message}` }, { status: 500 }));
+    return json({ error: false, message: `Failed to send OTP: ${error.message}` }, { status: 500, headers: corsHeaders });
   }
 }

@@ -1,4 +1,4 @@
-import type { ActionFunctionArgs } from "@remix-run/node";
+import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
 import { authenticate, shopify_api } from "../shopify.server";
 import db from "../db.server";
@@ -21,27 +21,20 @@ interface BillfreeRedeemResponse {
   scheme_message: string;
 }
 
+const corsHeaders = { "Access-Control-Allow-Origin": "*" };
+
+
+
 export async function action({ request }: ActionFunctionArgs) {
-  // Manually handle preflight requests
-  if (request.method === "OPTIONS") {
-    return new Response(null, {
-      status: 204,
-      headers: {
-        "Access-Control-Allow-Origin": "*", // You may want to restrict this to your shop's domain in production
-        "Access-Control-Allow-Methods": "POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, Authorization",
-      },
-    });
-  }
   if (request.method !== "POST") {
-    return json({ error: "Method Not Allowed" }, { status: 405 });
+    return json({ error: "Method Not Allowed" }, { status: 405, headers: corsHeaders });
   }
 
-  const { cors } = await authenticate.public.customerAccount(request);
+  await authenticate.public.customerAccount(request);
 
   const authHeader = request.headers.get("Authorization");
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return cors(json({ error: "Missing or invalid authorization token." }, { status: 401 }));
+    return json({ error: "Missing or invalid authorization token." }, { status: 401, headers: corsHeaders });
   }
   const token = authHeader.substring(7);
 
@@ -51,14 +44,14 @@ export async function action({ request }: ActionFunctionArgs) {
     shopDomain = session.dest.replace("https://", "");
   } catch (error: any) {
     console.error("Error decoding session token:", error);
-    return cors(json({ error: `Invalid session token: ${error.message}` }, { status: 401 }));
+    return json({ error: `Invalid session token: ${error.message}` }, { status: 401, headers: corsHeaders });
   }
 
   const payload: RedeemRequest = await request.json();
   const { customer_id, otp_code, bill_amt } = payload;
 
   if (!customer_id || !bill_amt) {
-    return cors(json({ error: "Missing required parameters." }, { status: 400 }));
+    return json({ error: "Missing required parameters." }, { status: 400, headers: corsHeaders });
   }
 
   try {
@@ -74,7 +67,7 @@ export async function action({ request }: ActionFunctionArgs) {
     });
 
     if (!shopSession?.isBillFreeConfigured || !shopSession.billFreeAuthToken || !shopSession.accessToken) {
-      return cors(json({ error: "BillFree not configured for this shop." }, { status: 400 }));
+      return json({ error: "BillFree not configured for this shop." }, { status: 400, headers: corsHeaders });
     }
 
     const client = new shopify_api.clients.Graphql({
@@ -103,7 +96,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
     const customerData = (customerResponse.body as any)?.data?.customer;
     if (!customerData?.phone) {
-      return cors(json({ error: "Customer phone number not found." }, { status: 400 }));
+      return json({ error: "Customer phone number not found." }, { status: 400, headers: corsHeaders });
     }
 
     if (otp_code) {
@@ -119,11 +112,11 @@ export async function action({ request }: ActionFunctionArgs) {
       });
 
       if (!otpResponse.ok) {
-        return cors(json({ error: "OTP verification failed." }, { status: 400 }));
+        return json({ error: "OTP verification failed." }, { status: 400, headers: corsHeaders });
       }
       const otpData = await otpResponse.json();
       if (otpData.error) {
-        return cors(json({ error: "Invalid OTP." }, { status: 400 }));
+        return json({ error: "Invalid OTP." }, { status: 400, headers: corsHeaders });
       }
     }
 
@@ -141,12 +134,12 @@ export async function action({ request }: ActionFunctionArgs) {
     });
 
     if (!redeemResponse.ok) {
-      return cors(json({ error: "Redemption failed." }, { status: 500 }));
+      return json({ error: "Redemption failed." }, { status: 500, headers: corsHeaders });
     }
 
     const redeemData: BillfreeRedeemResponse = await redeemResponse.json();
     if (redeemData.error || !redeemData.maxRedeemableAmt) {
-      return cors(json({ error: redeemData.response || "No discount available." }, { status: 400 }));
+      return json({ error: redeemData.response || "No discount available." }, { status: 400, headers: corsHeaders });
     }
 
     const discountAmount = redeemData.maxRedeemableAmt;
@@ -195,19 +188,19 @@ export async function action({ request }: ActionFunctionArgs) {
     const discountResult = (discountResponse.body as any)?.data?.discountCodeAppCreate;
     if (discountResult?.userErrors?.length > 0) {
       console.error("Discount creation errors:", discountResult.userErrors);
-      return cors(json({ error: "Failed to create discount code." }, { status: 500 }));
+      return json({ error: "Failed to create discount code." }, { status: 500, headers: corsHeaders });
     }
 
-    return cors(json({
+    return json({
       success: true,
       discountCode: discountCode,
       discountAmount: discountAmount,
       pointsRedeemed: redeemData.maxRedeemablePts,
       message: `₹${discountAmount} discount code created successfully!`,
-    }));
+    }, { headers: corsHeaders });
 
   } catch (error: any) {
     console.error("Error in loyalty redemption:", error);
-    return cors(json({ error: `Redemption failed: ${error.message}` }, { status: 500 }));
+    return json({ error: `Redemption failed: ${error.message}` }, { status: 500, headers: corsHeaders });
   }
 }

@@ -35,13 +35,3 @@ redirect_urls = [
 [pos]
 embedded = false
 
-[[web]]
-role = "backend"
-command = 'cmd /c "cd ..\shopify-flow-billing-server && npm run start:dev"'
-port = 3_000
-paths = [
-  "/webhooks/*",
-  "/api/auth/*",
-  "/flow-action/handle",
-  "/graphql"
-]

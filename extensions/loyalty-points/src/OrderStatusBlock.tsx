@@ -25,11 +25,14 @@ interface domainData {
 }
 function LoyaltyPoints() {
   const { query, sessionToken, authenticatedAccount } = useApi();
-  const [shopDomain, setShopDomain] = useState('');
+  // const [shopDomain, setShopDomain] = useState(''); // No longer needed
+
+  const backendUrl = "https://shopify-app-ten-pi.vercel.app";
 
   console.log("DEBUG: Full UI Extension API object:", { query, sessionToken, authenticatedAccount });
   console.log("DEBUG: api.customer object:", authenticatedAccount.customer);
   console.log("DEBUG: api.customer?.current?.id:", authenticatedAccount.customer.current.id);
+  console
 
   const [points, setPoints] = useState(null);
   const [errorMessage, setErrorMessage] = useState(null);
@@ -48,27 +51,10 @@ function LoyaltyPoints() {
   const [successMessage, setSuccessMessage] = useState("");
 
   useEffect(() => {
-    const fetchShopDomainAndPoints = async () => {
+    const fetchPoints = async () => {
       try {
-        // First, fetch the shop domain
-        const { data } = await query<domainData>(
-          `query {
-            shop {
-              primaryDomain {
-                url
-              }
-            }
-          }`
-        );
-
-        const domain = data?.shop?.primaryDomain?.url;
-        if (!domain) {
-          throw new Error("Shop domain not found.");
-        }
-        // Remove "https://" from the domain
-        const formattedDomain = domain.replace(/^https?:\/\//, '');
-        setShopDomain(formattedDomain);
-
+        // The logic to fetch shop domain has been removed as we are using a static backend URL.
+        
         // Now, fetch loyalty points
         if (!authenticatedAccount.customer.current.id) {
           setErrorMessage("Customer ID not available.");
@@ -77,9 +63,9 @@ function LoyaltyPoints() {
         }
 
         const customerGid = authenticatedAccount.customer.current.id;
-        const backendUrl = `https://${formattedDomain}/apps/api/loyalty/points`;
+        const loyaltyUrl = `${backendUrl}/api/loyalty/points`;
         const token = await sessionToken.get();
-        const requestUrl = `${backendUrl}?customer_id=${customerGid}`;
+        const requestUrl = `${loyaltyUrl}?customer_id=${customerGid}`;
 
         const response = await fetch(requestUrl, {
           method: 'GET',
@@ -121,16 +107,15 @@ function LoyaltyPoints() {
       }
     };
 
-    fetchShopDomainAndPoints();
+    fetchPoints();
   }, [query, sessionToken, authenticatedAccount]);
 
   // Handler for sending OTP
   const handleSendOTP = async () => {
-    if (!shopDomain) return;
     setIsRedeeming(true);
     try {
       const token = await sessionToken.get();
-      const response = await fetch(`https://${shopDomain}/apps/api/send-otp`, {
+      const response = await fetch(`${backendUrl}/api/send-otp`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -156,11 +141,10 @@ function LoyaltyPoints() {
 
   // Handler for direct redemption (no OTP)
   const handleDirectRedeem = async () => {
-    if (!shopDomain) return;
     setIsRedeeming(true);
     try {
       const token = await sessionToken.get();
-      const response = await fetch(`https://${shopDomain}/apps/api/loyalty/redeem-points`, {
+      const response = await fetch(`${backendUrl}/api/loyalty/redeem-points`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -192,11 +176,10 @@ function LoyaltyPoints() {
 
   // Handler for OTP verification and redemption
   const handleVerifyOTPAndRedeem = async () => {
-    if (!shopDomain) return;
     setIsRedeeming(true);
     try {
       const token = await sessionToken.get();
-      const response = await fetch(`https://${shopDomain}/apps/api/loyalty/redeem-points`, {
+      const response = await fetch(`${backendUrl}/api/loyalty/redeem-points`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -263,7 +246,7 @@ function LoyaltyPoints() {
               {otpFlag === "y" ? (
                 <Button
                   onPress={handleSendOTP}
-                  disabled={!billAmount || isRedeeming || !shopDomain}
+                  disabled={!billAmount || isRedeeming}
                   loading={isRedeeming}
                 >
                   Send OTP to Redeem
@@ -271,7 +254,7 @@ function LoyaltyPoints() {
               ) : (
                 <Button
                   onPress={handleDirectRedeem}
-                  disabled={!billAmount || isRedeeming || !shopDomain}
+                  disabled={!billAmount || isRedeeming}
                   loading={isRedeeming}
                 >
                   Redeem Points
@@ -294,7 +277,7 @@ function LoyaltyPoints() {
               <InlineStack spacing="base">
                 <Button
                   onPress={handleVerifyOTPAndRedeem}
-                  disabled={!otpCode || isRedeeming || !shopDomain}
+                  disabled={!otpCode || isRedeeming}
                   loading={isRedeeming}
                 >
                   Verify & Redeem
